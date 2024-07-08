@@ -1,5 +1,7 @@
 use phantom_zone::*;
 
+use itertools::Itertools;
+
 use rand::{thread_rng, Rng, RngCore};
 
 fn sum(a: u8, b: u8, c: u8, total: u8) -> u8 {

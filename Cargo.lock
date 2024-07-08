@@ -50,6 +50,7 @@ dependencies = [
 name = "karma_calculator"
 version = "0.1.0"
 dependencies = [
+ "itertools",
  "phantom-zone",
  "rand",
 ]
