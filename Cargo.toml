@@ -1,0 +1,8 @@
+[package]
+name = "karma_calculator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+phantom-zone = {git="https://github.com/gausslabs/phantom-zone", branch="main", feature=["non_interactive_mp"]} 
+rand = "*"
