@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-phantom-zone = {git="https://github.com/gausslabs/phantom-zone", branch="main", features=["non_interactive_mp"]} 
+phantom-zone = { git = "https://github.com/gausslabs/phantom-zone", branch = "main", features = [
+    "non_interactive_mp",
+] }
 rand = "*"
 itertools = "0.12.0"
-
-
+rocket = "0.5.1"

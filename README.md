@@ -1,7 +1,8 @@
-## Intro 
+## Intro
 
-## Run 
+## Run
+
 ```
-cargo run --release -- --features "non_interactive_mp"
+cargo run --release
 ```
 
