@@ -4,6 +4,7 @@ use phantom_zone::{
     set_parameter_set, ClientKey, Encryptor, ParameterSelector,
 };
 use rand::{thread_rng, RngCore};
+use rocket::data::{Limits, ToByteUnit};
 use std::borrow::Cow;
 
 use rocket::tokio::sync::Mutex;
@@ -103,17 +104,23 @@ impl User {
     }
 
     fn gen_cipher(&mut self) -> &mut Self {
-        // let score: [u8; 4] = self.scores.unwrap();
-        // let ck: ClientKey = self.ck.clone().unwrap();
-        // let cipher = ck.encrypt(&score);
-        // self.cipher = Some(bincode::serialize(&cipher).unwrap());
+        let scores = self.scores.unwrap().to_vec();
+        let ck: &ClientKey = self.ck.as_ref().unwrap();
+        let cipher = ck.encrypt(scores.as_slice());
+        let cipher = bincode::serialize(&cipher).unwrap();
+        // typically 16440. 17 KB
+        println!("cipher size {}", cipher.len());
+        self.cipher = Some(cipher);
         self
     }
 
     fn gen_server_key_share(&mut self) -> &mut Self {
         let server_key =
-            gen_server_key_share(self.id.unwrap(), TOTAL_USERS, &self.ck.clone().unwrap());
-        self.server_key = Some(bincode::serialize(&server_key).unwrap());
+            gen_server_key_share(self.id.unwrap(), TOTAL_USERS, self.ck.as_ref().unwrap());
+        let server_key = bincode::serialize(&server_key).unwrap();
+        // typically 226383808. 226 MB
+        println!("server_key size {}", server_key.len());
+        self.server_key = Some(server_key);
         self
     }
 }
@@ -123,6 +130,7 @@ impl User {
 struct CipherSubmission<'r> {
     user_id: UserId,
     cipher_text: Cow<'r, Cipher>,
+    sks: Cow<'r, ServerKeyShare>,
 }
 
 #[get("/world")]
@@ -172,7 +180,10 @@ async fn submit(cipher: Json<CipherSubmission<'_>>, users: Users<'_>) -> Value {
     if users.len() <= user_id {
         return json!({ "status": "fail", "reason": format!("{user_id} hasn't registered yet") });
     }
-    // users[user_id].cipher = Some(cipher.cipher_text.to_vec());
+    users[user_id].registration = Registration::KeySubmitted {
+        sks: cipher.sks.to_vec(),
+        cipher: cipher.cipher_text.to_vec(),
+    };
     json!({ "status": "ok", "user_id": user_id })
 }
 
@@ -236,6 +247,8 @@ mod tests {
 
         let mut users = vec![User::new("Barry"), User::new("Justin"), User::new("Brian")];
 
+        println!("acquire seeds");
+
         // Acquire seeds
         for user in users.iter_mut() {
             let seed = client
@@ -246,6 +259,8 @@ mod tests {
             user.assign_seed(seed);
             user.gen_client_key();
         }
+
+        println!("register users");
 
         // Register
         for user in users.iter_mut() {
@@ -268,5 +283,30 @@ mod tests {
             .into_json::<Vec<RegisteredUser>>()
             .expect("exists");
         println!("users records {:?}", users_record);
+
+        // Assign scores
+        users[0].assign_scores(&[0, 2, 4, 6]);
+        users[1].assign_scores(&[1, 0, 1, 2]);
+        users[2].assign_scores(&[1, 1, 0, 2]);
+
+        for user in users.iter_mut() {
+            println!("{} gen cipher", user.name);
+            user.gen_cipher();
+            println!("{} gen key share", user.name);
+            let now = std::time::Instant::now();
+            user.gen_server_key_share();
+            println!("elapsed {:#?}", now.elapsed());
+            println!("{} submit key and cipher", user.name);
+
+            client
+                .post("/submit")
+                .json(&CipherSubmission {
+                    user_id: user.id.unwrap(),
+                    cipher_text: Cow::Borrowed(user.cipher.as_ref().unwrap()),
+                    sks: Cow::Borrowed(&user.server_key.as_ref().unwrap()),
+                    // sks: Cow::Borrowed(&[0; 100000000].to_vec()),
+                })
+                .dispatch();
+        }
     }
 }
