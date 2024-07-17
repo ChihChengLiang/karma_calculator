@@ -50,6 +50,10 @@ fn main() {
         .map(|(id, k)| gen_server_key_share(id, no_of_parties, k))
         .collect_vec();
 
+   let string = bincode::serialize(&server_key_shares[0]).unwrap();
+   println!("{}", string.len());
+
+
     let server_key = aggregate_server_key_shares(&server_key_shares);
     server_key.set_server_key();
     // barry score
