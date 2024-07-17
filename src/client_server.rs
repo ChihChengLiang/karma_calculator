@@ -18,11 +18,15 @@ type UserId = usize;
 type ServerKeyShare = Vec<u8>;
 type Cipher = Vec<u8>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
 enum Registration {
     IDAcquired,
     KeySubmitted { sks: ServerKeyShare, cipher: Cipher },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
 struct RegisteredUser {
     name: String,
     registration: Registration,
@@ -154,6 +158,12 @@ async fn register(name: &str, users: Users<'_>) -> Json<RegistrationOut> {
     })
 }
 
+#[get("/users")]
+async fn get_users(users: Users<'_>) -> Json<Vec<RegisteredUser>> {
+    let users = users.lock().await;
+    Json(users.to_vec())
+}
+
 /// The user submits the ciphertext
 #[post("/submit", data = "<cipher>")]
 async fn submit(cipher: Json<CipherSubmission<'_>>, users: Users<'_>) -> Value {
@@ -205,7 +215,7 @@ fn rocket() -> _ {
         .manage(UserList::new(vec![]))
         .manage(Parameters::new(seed))
         .mount("/hello", routes![world])
-        .mount("/", routes![get_param, register, submit, run])
+        .mount("/", routes![get_param, register, get_users, submit, run])
 }
 
 #[cfg(test)]
@@ -241,10 +251,22 @@ mod tests {
         for user in users.iter_mut() {
             let out = client
                 .post("/register")
+                .body(user.name.to_string())
                 .dispatch()
                 .into_json::<RegistrationOut>()
                 .expect("exists");
             user.set_id(out.user_id);
         }
+        println!(
+            "users {:?}",
+            users.iter().map(|u| (u.name.clone(), u.id)).collect_vec()
+        );
+
+        let users_record = client
+            .get("/users")
+            .dispatch()
+            .into_json::<Vec<RegisteredUser>>()
+            .expect("exists");
+        println!("users records {:?}", users_record);
     }
 }
