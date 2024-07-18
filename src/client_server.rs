@@ -128,7 +128,7 @@ impl User {
         self
     }
     fn assign_scores(&mut self, scores: &[u8; 4]) -> &mut Self {
-        self.scores = Some(scores.clone());
+        self.scores = Some(*scores);
         self
     }
 
