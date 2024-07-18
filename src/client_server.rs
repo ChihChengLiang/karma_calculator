@@ -172,13 +172,33 @@ impl User {
 
     fn get_my_shares(&self) -> Vec<DecryptionShare> {
         let my_id = self.id.expect("exists");
-        println!(" self.decryption_shares {:?}", self.decryption_shares);
         (0..3)
             .map(|output_id| {
                 self.decryption_shares
                     .get(&(output_id, my_id))
                     .expect("exists")
                     .to_owned()
+            })
+            .collect_vec()
+    }
+
+    fn decrypt_everything(&self) -> Vec<u8> {
+        let ck = self.ck.as_ref().expect("already exists");
+        let fhe_out = self.fhe_out.as_ref().expect("exists");
+
+        fhe_out
+            .iter()
+            .enumerate()
+            .map(|(output_id, output)| {
+                let decryption_shares = (0..TOTAL_USERS)
+                    .map(|user_id| {
+                        self.decryption_shares
+                            .get(&(output_id, user_id))
+                            .expect("exists")
+                            .to_owned()
+                    })
+                    .collect_vec();
+                ck.aggregate_decryption_shares(output, &decryption_shares)
             })
             .collect_vec()
     }
@@ -512,7 +532,7 @@ mod tests {
         }
         // Users acquire all decryption shares they want
         for user in users.iter_mut() {
-            for (output_id, user_id) in zip(0..3, 0..TOTAL_USERS) {
+            for (output_id, user_id) in (0..3).cartesian_product(0..TOTAL_USERS) {
                 if user.decryption_shares.get(&(output_id, user_id)).is_none() {
                     let ds = client
                         .get(format!("/decryption_share/{output_id}/{user_id}"))
@@ -522,6 +542,12 @@ mod tests {
                     user.decryption_shares.insert((output_id, user_id), ds);
                 }
             }
+        }
+        // Users decrypt everything
+        println!("Users decrypt everything");
+        for user in users {
+            let decrypted_outs = user.decrypt_everything();
+            println!("{} sees {:?}", user.name, decrypted_outs);
         }
     }
 }
