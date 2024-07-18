@@ -1,7 +1,8 @@
 use itertools::Itertools;
 use phantom_zone::{
     aggregate_server_key_shares, gen_client_key, gen_server_key_share, set_common_reference_seed,
-    set_parameter_set, ClientKey, Encryptor, ParameterSelector,
+    set_parameter_set, ClientKey, Encryptor, FheUint8, KeySwitchWithId, ParameterSelector,
+    SampleExtractor, SeededBatchedFheUint8,
 };
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
@@ -37,6 +38,19 @@ struct RegisteredUser {
 // We're going to store all of the messages here. No need for a DB.
 type UserList = Mutex<Vec<RegisteredUser>>;
 type Users<'r> = &'r State<UserList>;
+
+enum FHEOutput {
+    NotReady,
+    Ready(Vec<FheUint8>),
+}
+
+impl FHEOutput {
+    fn ready(&mut self, outs: &[FheUint8]) {
+        *self = Self::Ready(outs.to_vec())
+    }
+}
+
+type MutexFHEOutput = Mutex<FHEOutput>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -193,9 +207,13 @@ async fn submit(submission: MsgPack<CipherSubmission<'_>>, users: Users<'_>) -> 
     json!({ "status": "ok", "user_id": user_id })
 }
 
+fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUint8 {
+    &(&(a + b) + c) - total
+}
+
 /// The admin runs the fhe computation
 #[post("/run")]
-async fn run(users: Users<'_>) -> Value {
+async fn run(users: Users<'_>, fhe_output: &'_ State<MutexFHEOutput>) -> Value {
     let users = users.lock().await;
     println!("checking if we have all user submissions");
     if users.len() < TOTAL_USERS {
@@ -224,6 +242,38 @@ async fn run(users: Users<'_>) -> Value {
     let server_key = aggregate_server_key_shares(server_key_shares);
     server_key.set_server_key();
 
+    let cipher_texts: &Vec<SeededBatchedFheUint8<_, _>> = &submissions
+        .iter()
+        .map(|s| bincode::deserialize(&s.cipher_text).unwrap())
+        .collect_vec();
+
+    let encs = &cipher_texts
+        .iter()
+        .map(|c| c.unseed::<Vec<Vec<u64>>>())
+        .collect_vec();
+    let mut outs = vec![];
+    for i in 0..TOTAL_USERS {
+        println!("i; {:?}", i);
+        let my_scores_from_others = &encs
+            .iter()
+            .enumerate()
+            .map(|(j, enc)| enc.key_switch(j).extract_at(i))
+            .collect_vec();
+
+        let total = encs[i].key_switch(i).extract_at(3);
+
+        let now = std::time::Instant::now();
+        let ct_out_f1 = sum_fhe(
+            &my_scores_from_others[0],
+            &my_scores_from_others[1],
+            &my_scores_from_others[2],
+            &total,
+        );
+        println!("Function1 FHE evaluation time: {:?}", now.elapsed());
+        outs.push(ct_out_f1)
+    }
+    fhe_output.lock().await.ready(&outs);
+
     json!({ "status": "ok"})
 }
 
@@ -238,6 +288,7 @@ fn rocket() -> _ {
     rocket::build()
         .manage(UserList::new(vec![]))
         .manage(Parameters::new(seed))
+        .manage(MutexFHEOutput::new(FHEOutput::NotReady))
         .mount("/hello", routes![world])
         .mount("/", routes![get_param, register, get_users, submit, run])
 }
@@ -319,11 +370,10 @@ mod tests {
                 sks: Cow::Borrowed(&user.server_key.as_ref().unwrap()),
             };
             let now = std::time::Instant::now();
-            client
-                .post(format!("/submit"))
-                .msgpack(&submission)
-                .dispatch();
+            client.post("/submit").msgpack(&submission).dispatch();
             println!("It takes {:#?} to submit server key", now.elapsed());
         }
+
+        client.post("/run").dispatch();
     }
 }
