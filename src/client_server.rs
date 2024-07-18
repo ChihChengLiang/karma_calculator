@@ -1,11 +1,12 @@
 use itertools::Itertools;
 use phantom_zone::{
     aggregate_server_key_shares, gen_client_key, gen_server_key_share, set_common_reference_seed,
-    set_parameter_set, ClientKey, Encryptor, FheUint8, KeySwitchWithId, ParameterSelector,
-    SampleExtractor, SeededBatchedFheUint8,
+    set_parameter_set, ClientKey, Encryptor, FheUint8, KeySwitchWithId, MultiPartyDecryptor,
+    ParameterSelector, SampleExtractor, SeededBatchedFheUint8,
 };
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fs;
 use std::ops::Deref;
 
@@ -21,12 +22,14 @@ use rocket::serde::{Deserialize, Serialize};
 type UserId = usize;
 type ServerKeyShare = Vec<u8>;
 type Cipher = Vec<u8>;
+type DecryptionShare = Vec<u64>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 enum Registration {
     IDAcquired,
-    Submitted,
+    CipherSubmitted,
+    DecryptionShareSubmitted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +68,10 @@ impl Parameters {
     }
 }
 
+/// FheUint8 index -> user_id -> decryption share
+type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
+type MutexDecryptionSharesMap = Mutex<DecryptionSharesMap>;
+
 // TODO: how should the user get this value before everyone registered?
 const TOTAL_USERS: usize = 3;
 
@@ -83,6 +90,8 @@ struct User {
     cipher: Option<Cipher>,
     // step 4: get FHE output
     fhe_out: Option<Vec<FheUint8>>,
+    // step 5: derive decryption shares
+    decryption_shares: DecryptionSharesMap,
 }
 
 impl User {
@@ -96,6 +105,7 @@ impl User {
             server_key: None,
             cipher: None,
             fhe_out: None,
+            decryption_shares: HashMap::new(),
         }
     }
 
@@ -147,8 +157,30 @@ impl User {
         self.fhe_out = Some(fhe_out);
         self
     }
-    fn gen_decryption_share(&mut self) -> &mut Self {
+    /// Populate decryption_shares with my shares
+    fn gen_decryption_shares(&mut self) -> &mut Self {
+        let ck = self.ck.as_ref().expect("already exists");
+        let fhe_out = self.fhe_out.as_ref().expect("exists");
+        let my_id = self.id.expect("exists");
+        for (output_id, out) in fhe_out.iter().enumerate() {
+            let my_decryption_share = ck.gen_decryption_share(out);
+            self.decryption_shares
+                .insert((output_id, my_id), my_decryption_share);
+        }
         self
+    }
+
+    fn get_my_shares(&self) -> Vec<DecryptionShare> {
+        let my_id = self.id.expect("exists");
+        println!(" self.decryption_shares {:?}", self.decryption_shares);
+        (0..3)
+            .map(|output_id| {
+                self.decryption_shares
+                    .get(&(output_id, my_id))
+                    .expect("exists")
+                    .to_owned()
+            })
+            .collect_vec()
     }
 }
 
@@ -158,6 +190,14 @@ struct CipherSubmission<'r> {
     user_id: UserId,
     cipher_text: Cow<'r, Cipher>,
     sks: Cow<'r, ServerKeyShare>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct DecryptionShareSubmission<'r> {
+    user_id: UserId,
+    /// The user sends decryption share Vec<u64> for each FheUint8.
+    decryption_shares: Cow<'r, Vec<Vec<u64>>>,
 }
 
 #[get("/world")]
@@ -215,7 +255,7 @@ async fn submit(submission: MsgPack<CipherSubmission<'_>>, users: Users<'_>) -> 
     if users.len() <= user_id {
         return json!({ "status": "fail", "reason": format!("{user_id} hasn't registered yet") });
     }
-    users[user_id].registration = Registration::Submitted;
+    users[user_id].registration = Registration::CipherSubmitted;
     json!({ "status": "ok", "user_id": user_id })
 }
 
@@ -252,7 +292,9 @@ async fn run(users: Users<'_>, fhe_output: &'_ State<MutexFHEOutput>) -> Value {
         .map(|s| bincode::deserialize(&s.sks).unwrap())
         .collect_vec();
     println!("aggregate server key shares");
+    let now = std::time::Instant::now();
     let server_key = aggregate_server_key_shares(server_key_shares);
+    println!("server key aggregation time: {:?}", now.elapsed());
     println!("set server key");
     server_key.set_server_key();
 
@@ -303,6 +345,40 @@ async fn get_fhe_output(
     }
 }
 
+/// The user submits the ciphertext
+#[post("/submit_decryption_shares", data = "<submission>", format = "msgpack")]
+async fn submit_decryption_shares(
+    submission: MsgPack<DecryptionShareSubmission<'_>>,
+    decryption_shares: &'_ State<MutexDecryptionSharesMap>,
+    users: Users<'_>,
+) -> Value {
+    let user_id = submission.user_id;
+    let mut decryption_shares = decryption_shares.lock().await;
+    for (output_id, ds) in submission.decryption_shares.iter().enumerate() {
+        decryption_shares.insert((output_id, user_id), ds.to_vec());
+    }
+
+    let mut users = users.lock().await;
+
+    users[user_id].registration = Registration::DecryptionShareSubmitted;
+    json!({ "status": "ok", "user_id": user_id })
+}
+
+#[get("/decryption_share/<fhe_output_id>/<user_id>")]
+async fn get_decryption_share(
+    fhe_output_id: usize,
+    user_id: UserId,
+    decryption_shares: &'_ State<MutexDecryptionSharesMap>,
+) -> Result<Json<DecryptionShare>, Value> {
+    let decryption_shares = decryption_shares.lock().await;
+    match decryption_shares.deref().get(&(fhe_output_id, user_id)) {
+        None => Err(
+            json!({"stats": "fail", "reason": format!("find no decryption shares for output {} and user {}", fhe_output_id, user_id)}),
+        ),
+        Some(share) => Ok(Json(share.to_vec())),
+    }
+}
+
 #[launch]
 fn rocket() -> _ {
     let mut seed = [0u8; 32];
@@ -315,15 +391,27 @@ fn rocket() -> _ {
         .manage(UserList::new(vec![]))
         .manage(Parameters::new(seed))
         .manage(MutexFHEOutput::new(FHEOutput::NotReady))
+        .manage(MutexDecryptionSharesMap::new(HashMap::new()))
         .mount("/hello", routes![world])
         .mount(
             "/",
-            routes![get_param, register, get_users, submit, run, get_fhe_output],
+            routes![
+                get_param,
+                register,
+                get_users,
+                submit,
+                run,
+                get_fhe_output,
+                submit_decryption_shares,
+                get_decryption_share,
+            ],
         )
 }
 
 #[cfg(test)]
 mod tests {
+    use std::iter::zip;
+
     use super::*;
     use rocket::local::blocking::Client;
 
@@ -402,7 +490,7 @@ mod tests {
         // Admin runs the FHE computation
         client.post("/run").dispatch();
 
-        // Users get FHE output and generate decryption shares
+        // Users get FHE output, generate decryption shares, and submit decryption shares
         for user in users.iter_mut() {
             let fhe_output = client
                 .get("/fhe_output")
@@ -411,6 +499,29 @@ mod tests {
                 .expect("exists");
 
             user.set_fhe_out(fhe_output);
+            user.gen_decryption_shares();
+            let decryption_shares = &user.get_my_shares();
+            let submission = DecryptionShareSubmission {
+                user_id: user.id.expect("exist now"),
+                decryption_shares: Cow::Borrowed(decryption_shares),
+            };
+            client
+                .post("/submit_decryption_shares")
+                .msgpack(&submission)
+                .dispatch();
+        }
+        // Users acquire all decryption shares they want
+        for user in users.iter_mut() {
+            for (output_id, user_id) in zip(0..3, 0..TOTAL_USERS) {
+                if user.decryption_shares.get(&(output_id, user_id)).is_none() {
+                    let ds = client
+                        .get(format!("/decryption_share/{output_id}/{user_id}"))
+                        .dispatch()
+                        .into_json::<DecryptionShare>()
+                        .expect("exists");
+                    user.decryption_shares.insert((output_id, user_id), ds);
+                }
+            }
         }
     }
 }
