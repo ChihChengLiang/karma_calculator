@@ -75,7 +75,7 @@ type MutexDecryptionSharesMap = Mutex<DecryptionSharesMap>;
 // TODO: how should the user get this value before everyone registered?
 const TOTAL_USERS: usize = 3;
 
-struct User {
+pub struct User {
     name: String,
     // step 0: get seed
     seed: Option<[u8; 32]>,
@@ -95,7 +95,7 @@ struct User {
 }
 
 impl User {
-    fn new(name: &str) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
             ck: None,
@@ -109,30 +109,35 @@ impl User {
         }
     }
 
-    fn assign_seed(&mut self, seed: [u8; 32]) -> &mut Self {
+    pub fn update_name(&mut self, name: &str) -> &mut Self {
+        self.name = name.to_string();
+        self
+    }
+
+    pub fn assign_seed(&mut self, seed: [u8; 32]) -> &mut Self {
         self.seed = Some(seed);
         self
     }
 
-    fn set_seed(&self) {
+    pub fn set_seed(&self) {
         set_common_reference_seed(self.seed.unwrap());
     }
 
-    fn gen_client_key(&mut self) -> &mut Self {
+    pub fn gen_client_key(&mut self) -> &mut Self {
         self.ck = Some(gen_client_key());
         self
     }
 
-    fn set_id(&mut self, id: usize) -> &mut Self {
+    pub fn set_id(&mut self, id: usize) -> &mut Self {
         self.id = Some(id);
         self
     }
-    fn assign_scores(&mut self, scores: &[u8; 4]) -> &mut Self {
+    pub fn assign_scores(&mut self, scores: &[u8; 4]) -> &mut Self {
         self.scores = Some(*scores);
         self
     }
 
-    fn gen_cipher(&mut self) -> &mut Self {
+    pub fn gen_cipher(&mut self) -> &mut Self {
         let scores = self.scores.unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
         let cipher = ck.encrypt(scores.as_slice());
@@ -143,7 +148,7 @@ impl User {
         self
     }
 
-    fn gen_server_key_share(&mut self) -> &mut Self {
+    pub fn gen_server_key_share(&mut self) -> &mut Self {
         let server_key =
             gen_server_key_share(self.id.unwrap(), TOTAL_USERS, self.ck.as_ref().unwrap());
         let server_key = bincode::serialize(&server_key).unwrap();
@@ -153,12 +158,12 @@ impl User {
         self
     }
 
-    fn set_fhe_out(&mut self, fhe_out: Vec<FheUint8>) -> &mut Self {
+    pub fn set_fhe_out(&mut self, fhe_out: Vec<FheUint8>) -> &mut Self {
         self.fhe_out = Some(fhe_out);
         self
     }
     /// Populate decryption_shares with my shares
-    fn gen_decryption_shares(&mut self) -> &mut Self {
+    pub fn gen_decryption_shares(&mut self) -> &mut Self {
         let ck = self.ck.as_ref().expect("already exists");
         let fhe_out = self.fhe_out.as_ref().expect("exists");
         let my_id = self.id.expect("exists");
@@ -170,7 +175,7 @@ impl User {
         self
     }
 
-    fn get_my_shares(&self) -> Vec<DecryptionShare> {
+    pub fn get_my_shares(&self) -> Vec<DecryptionShare> {
         let my_id = self.id.expect("exists");
         (0..3)
             .map(|output_id| {
@@ -182,7 +187,7 @@ impl User {
             .collect_vec()
     }
 
-    fn decrypt_everything(&self) -> Vec<u8> {
+    pub fn decrypt_everything(&self) -> Vec<u8> {
         let ck = self.ck.as_ref().expect("already exists");
         let fhe_out = self.fhe_out.as_ref().expect("exists");
 
@@ -232,9 +237,9 @@ fn get_param(param: &State<Parameters>) -> Json<[u8; 32]> {
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-struct RegistrationOut {
-    name: String,
-    user_id: usize,
+pub struct RegistrationOut {
+    pub name: String,
+    pub user_id: usize,
 }
 
 /// A user registers a name and get an ID
@@ -399,13 +404,17 @@ async fn get_decryption_share(
     }
 }
 
+pub fn setup(seed: &[u8; 32]) {
+    set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
+    set_common_reference_seed(*seed);
+}
+
 #[launch]
-fn rocket() -> _ {
+pub fn rocket() -> _ {
     let mut seed = [0u8; 32];
     thread_rng().fill_bytes(&mut seed);
 
-    set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
-    set_common_reference_seed(seed);
+    setup(&seed);
 
     rocket::build()
         .manage(UserList::new(vec![]))
