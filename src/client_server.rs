@@ -4,14 +4,15 @@ use phantom_zone::{
     set_parameter_set, ClientKey, Encryptor, ParameterSelector,
 };
 use rand::{thread_rng, RngCore};
-use rocket::data::{Limits, ToByteUnit};
 use std::borrow::Cow;
+use std::fs;
 
 use rocket::tokio::sync::Mutex;
+use rocket::State;
 use rocket::{get, launch, post, routes};
-use rocket::{Responder, State};
 
 use rocket::serde::json::{json, Json, Value};
+use rocket::serde::msgpack::MsgPack;
 use rocket::serde::{Deserialize, Serialize};
 
 // The type to represent the ID of a message.
@@ -23,7 +24,7 @@ type Cipher = Vec<u8>;
 #[serde(crate = "rocket::serde")]
 enum Registration {
     IDAcquired,
-    KeySubmitted { sks: ServerKeyShare, cipher: Cipher },
+    Submitted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,17 +174,22 @@ async fn get_users(users: Users<'_>) -> Json<Vec<RegisteredUser>> {
 }
 
 /// The user submits the ciphertext
-#[post("/submit", data = "<cipher>")]
-async fn submit(cipher: Json<CipherSubmission<'_>>, users: Users<'_>) -> Value {
+#[post("/submit", data = "<submission>", format = "msgpack")]
+async fn submit(submission: MsgPack<CipherSubmission<'_>>, users: Users<'_>) -> Value {
+    let user_id = submission.user_id;
+    let data_path = std::env::temp_dir().join(format!("user_{user_id}.dat"));
+    fs::write(
+        data_path,
+        bincode::serialize(&submission.0).expect("serialize success"),
+    )
+    .expect("sucess");
+
     let mut users = users.lock().await;
-    let user_id = cipher.user_id;
+
     if users.len() <= user_id {
         return json!({ "status": "fail", "reason": format!("{user_id} hasn't registered yet") });
     }
-    users[user_id].registration = Registration::KeySubmitted {
-        sks: cipher.sks.to_vec(),
-        cipher: cipher.cipher_text.to_vec(),
-    };
+    users[user_id].registration = Registration::Submitted;
     json!({ "status": "ok", "user_id": user_id })
 }
 
@@ -195,21 +201,28 @@ async fn run(users: Users<'_>) -> Value {
     if users.len() < TOTAL_USERS {
         return json!( {"status": "fail", "reason":"some users haven't registered yet"});
     }
-    // for (user_id, user) in users.iter().enumerate() {
-    //     if user.cipher.is_none() {
-    //         return json!( {"status": "fail", "reason":format!("user {user_id} hasn't submit cipher yet")});
-    //     }
-    // }
+    println!("load server keys and ciphers");
 
-    // println!("derive server key");
+    let mut submissions = vec![];
+    for (user_id, _user) in users.iter().enumerate() {
+        let data_path = std::env::temp_dir().join(format!("user_{user_id}.dat"));
+        if let Ok(data) = fs::read(data_path) {
+            let submission: CipherSubmission =
+                bincode::deserialize(&data).expect("deserialize success");
+            submissions.push(submission);
+        } else {
+            return json!( {"status": "fail", "reason":format!("can't find cipher submission from user {user_id}")});
+        }
+    }
 
-    // let server_key_shares = users
-    //     .iter()
-    //     .map(|u| bincode::deserialize(&u.cipher.clone().unwrap()).unwrap())
-    //     .collect_vec();
+    println!("derive server key");
 
-    // let server_key = aggregate_server_key_shares(&server_key_shares);
-    // server_key.set_server_key();
+    let server_key_shares = &submissions
+        .iter()
+        .map(|s| bincode::deserialize(&s.sks).unwrap())
+        .collect_vec();
+    let server_key = aggregate_server_key_shares(server_key_shares);
+    server_key.set_server_key();
 
     json!({ "status": "ok"})
 }
@@ -295,18 +308,22 @@ mod tests {
             println!("{} gen key share", user.name);
             let now = std::time::Instant::now();
             user.gen_server_key_share();
-            println!("elapsed {:#?}", now.elapsed());
+            println!("It takes {:#?} to gen server key", now.elapsed());
             println!("{} submit key and cipher", user.name);
 
+            let user_id = user.id.unwrap();
+
+            let submission = CipherSubmission {
+                user_id,
+                cipher_text: Cow::Borrowed(user.cipher.as_ref().unwrap()),
+                sks: Cow::Borrowed(&user.server_key.as_ref().unwrap()),
+            };
+            let now = std::time::Instant::now();
             client
-                .post("/submit")
-                .json(&CipherSubmission {
-                    user_id: user.id.unwrap(),
-                    cipher_text: Cow::Borrowed(user.cipher.as_ref().unwrap()),
-                    sks: Cow::Borrowed(&user.server_key.as_ref().unwrap()),
-                    // sks: Cow::Borrowed(&[0; 100000000].to_vec()),
-                })
+                .post(format!("/submit"))
+                .msgpack(&submission)
                 .dispatch();
+            println!("It takes {:#?} to submit server key", now.elapsed());
         }
     }
 }

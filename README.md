@@ -15,3 +15,6 @@ cargo run --release
 5. Client votes. Submit server keys and ciphers
 6. Admin execute run
 7. Admin query results
+
+
+Decrypt result
