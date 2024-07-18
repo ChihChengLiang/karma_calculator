@@ -7,6 +7,7 @@ use phantom_zone::{
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
 use std::fs;
+use std::ops::Deref;
 
 use rocket::tokio::sync::Mutex;
 use rocket::State;
@@ -80,6 +81,8 @@ struct User {
     // step 3: gen key and cipher
     server_key: Option<ServerKeyShare>,
     cipher: Option<Cipher>,
+    // step 4: get FHE output
+    fhe_out: Option<Vec<FheUint8>>,
 }
 
 impl User {
@@ -92,6 +95,7 @@ impl User {
             scores: None,
             server_key: None,
             cipher: None,
+            fhe_out: None,
         }
     }
 
@@ -136,6 +140,14 @@ impl User {
         // typically 226383808. 226 MB
         println!("server_key size {}", server_key.len());
         self.server_key = Some(server_key);
+        self
+    }
+
+    fn set_fhe_out(&mut self, fhe_out: Vec<FheUint8>) -> &mut Self {
+        self.fhe_out = Some(fhe_out);
+        self
+    }
+    fn gen_decryption_share(&mut self) -> &mut Self {
         self
     }
 }
@@ -233,15 +245,18 @@ async fn run(users: Users<'_>, fhe_output: &'_ State<MutexFHEOutput>) -> Value {
         }
     }
 
-    println!("derive server key");
+    println!("collect serialized server keys");
 
     let server_key_shares = &submissions
         .iter()
         .map(|s| bincode::deserialize(&s.sks).unwrap())
         .collect_vec();
+    println!("aggregate server key shares");
     let server_key = aggregate_server_key_shares(server_key_shares);
+    println!("set server key");
     server_key.set_server_key();
 
+    println!("collect serialized cipher texts");
     let cipher_texts: &Vec<SeededBatchedFheUint8<_, _>> = &submissions
         .iter()
         .map(|s| bincode::deserialize(&s.cipher_text).unwrap())
@@ -252,29 +267,40 @@ async fn run(users: Users<'_>, fhe_output: &'_ State<MutexFHEOutput>) -> Value {
         .map(|c| c.unseed::<Vec<Vec<u64>>>())
         .collect_vec();
     let mut outs = vec![];
-    for i in 0..TOTAL_USERS {
-        println!("i; {:?}", i);
+    for (my_id, me) in users.iter().enumerate() {
+        println!("Compute {}'s karma", me.name);
         let my_scores_from_others = &encs
             .iter()
             .enumerate()
-            .map(|(j, enc)| enc.key_switch(j).extract_at(i))
+            .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
             .collect_vec();
 
-        let total = encs[i].key_switch(i).extract_at(3);
+        let total = encs[my_id].key_switch(my_id).extract_at(3);
 
         let now = std::time::Instant::now();
-        let ct_out_f1 = sum_fhe(
+        let ct_out = sum_fhe(
             &my_scores_from_others[0],
             &my_scores_from_others[1],
             &my_scores_from_others[2],
             &total,
         );
-        println!("Function1 FHE evaluation time: {:?}", now.elapsed());
-        outs.push(ct_out_f1)
+        println!("sum_fhe evaluation time: {:?}", now.elapsed());
+        outs.push(ct_out)
     }
     fhe_output.lock().await.ready(&outs);
 
     json!({ "status": "ok"})
+}
+
+#[get("/fhe_output")]
+async fn get_fhe_output(
+    fhe_output: &'_ State<MutexFHEOutput>,
+) -> Result<Json<Vec<FheUint8>>, Value> {
+    let fhe_output = fhe_output.lock().await;
+    match fhe_output.deref() {
+        FHEOutput::NotReady => Err(json!({"status": "fail", "reason":"output not ready yet"})),
+        FHEOutput::Ready(output) => Ok(Json(output.to_vec())),
+    }
 }
 
 #[launch]
@@ -290,7 +316,10 @@ fn rocket() -> _ {
         .manage(Parameters::new(seed))
         .manage(MutexFHEOutput::new(FHEOutput::NotReady))
         .mount("/hello", routes![world])
-        .mount("/", routes![get_param, register, get_users, submit, run])
+        .mount(
+            "/",
+            routes![get_param, register, get_users, submit, run, get_fhe_output],
+        )
 }
 
 #[cfg(test)]
@@ -336,10 +365,6 @@ mod tests {
                 .expect("exists");
             user.set_id(out.user_id);
         }
-        println!(
-            "users {:?}",
-            users.iter().map(|u| (u.name.clone(), u.id)).collect_vec()
-        );
 
         let users_record = client
             .get("/users")
@@ -374,6 +399,18 @@ mod tests {
             println!("It takes {:#?} to submit server key", now.elapsed());
         }
 
+        // Admin runs the FHE computation
         client.post("/run").dispatch();
+
+        // Users get FHE output and generate decryption shares
+        for user in users.iter_mut() {
+            let fhe_output = client
+                .get("/fhe_output")
+                .dispatch()
+                .into_json::<Vec<FheUint8>>()
+                .expect("exists");
+
+            user.set_fhe_out(fhe_output);
+        }
     }
 }
