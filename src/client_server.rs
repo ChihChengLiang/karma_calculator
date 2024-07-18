@@ -34,7 +34,7 @@ enum Registration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-struct RegisteredUser {
+pub struct RegisteredUser {
     name: String,
     registration: Registration,
 }
@@ -82,12 +82,12 @@ pub struct User {
     // step 0.5: gen client key
     ck: Option<ClientKey>,
     // step 1: get userID
-    id: Option<UserId>,
+    pub id: Option<UserId>,
     // step 2: assign scores
     scores: Option<[u8; 4]>,
     // step 3: gen key and cipher
-    server_key: Option<ServerKeyShare>,
-    cipher: Option<Cipher>,
+    pub server_key: Option<ServerKeyShare>,
+    pub cipher: Option<Cipher>,
     // step 4: get FHE output
     fhe_out: Option<Vec<FheUint8>>,
     // step 5: derive decryption shares
@@ -211,10 +211,20 @@ impl User {
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-struct CipherSubmission<'r> {
+pub struct CipherSubmission<'r> {
     user_id: UserId,
     cipher_text: Cow<'r, Cipher>,
     sks: Cow<'r, ServerKeyShare>,
+}
+
+impl<'r> CipherSubmission<'r> {
+    pub fn new(user_id: usize, cipher_text: &'r Vec<u8>, sks: &'r Vec<u8>) -> Self {
+        Self {
+            user_id,
+            cipher_text: Cow::Borrowed(cipher_text),
+            sks: Cow::Borrowed(sks),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -506,11 +516,11 @@ mod tests {
 
             let user_id = user.id.unwrap();
 
-            let submission = CipherSubmission {
+            let submission = CipherSubmission::new(
                 user_id,
-                cipher_text: Cow::Borrowed(user.cipher.as_ref().unwrap()),
-                sks: Cow::Borrowed(&user.server_key.as_ref().unwrap()),
-            };
+                user.cipher.as_ref().unwrap(),
+                user.server_key.as_ref().unwrap(),
+            );
             let now = std::time::Instant::now();
             client.post("/submit").msgpack(&submission).dispatch();
             println!("It takes {:#?} to submit server key", now.elapsed());

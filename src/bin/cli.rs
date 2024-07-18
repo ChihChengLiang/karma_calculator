@@ -1,10 +1,16 @@
+use std::collections::HashMap;
+
 use clap::command;
-use karma_calculator::{setup, RegistrationOut, User};
+use karma_calculator::{setup, CipherSubmission, RegisteredUser, RegistrationOut, User};
 
 use tokio;
 
 use clap::{Parser, Subcommand};
-use reqwest::{self, Client};
+use reqwest::{
+    self,
+    header::{self, HeaderMap, HeaderValue, CONTENT_TYPE},
+    Client,
+};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -23,7 +29,10 @@ enum Commands {
     Register {
         name: String,
     },
-    Rate,
+    Users,
+    Rate {
+        scores: Vec<u8>,
+    },
     SubmitCipher,
     SubmitDecryptionShares,
     ComputeFheOutput,
@@ -45,12 +54,16 @@ async fn main() -> Result<(), reqwest::Error> {
             if let Some(url) = url {
                 root_url = url.to_string();
             }
+            println!("Acquiring seed");
             let seed: [u8; 32] = reqwest::get(format!("{root_url}/param"))
                 .await?
                 .json()
                 .await?;
-            println!("acquired seed {:?}", seed);
+            println!("Acquired seed {:?}", seed);
+            println!("Run setup");
             setup(&seed);
+            println!("Gen client key");
+            me.gen_client_key();
         }
         Commands::Register { name } => {
             me.update_name(name);
@@ -67,8 +80,45 @@ async fn main() -> Result<(), reqwest::Error> {
                 reg.name, reg.user_id
             );
         }
-        Commands::Rate => todo!(),
-        Commands::SubmitCipher => todo!(),
+        Commands::Users => {
+            let users: Vec<RegisteredUser> = reqwest::get(format!("{root_url}/users"))
+                .await?
+                .json()
+                .await?;
+            println!("Users {:?}", users);
+        }
+        Commands::Rate { scores } => {
+            assert_eq!(scores.len(), 3);
+            //TODO: handle all exceptions
+            let total = scores.iter().sum();
+            me.assign_scores(&[scores[0], scores[1], scores[2], total]);
+            println!("Generating cipher");
+            me.gen_cipher();
+            println!("Generating server key share");
+            me.gen_server_key_share();
+        }
+        Commands::SubmitCipher => {
+            let submission = CipherSubmission::new(
+                me.id.expect("id exists"),
+                me.cipher.as_ref().expect("exists"),
+                &me.server_key.as_ref().expect("exists"),
+            );
+            Client::new()
+                .post(format!("{root_url}/submit"))
+                .headers({
+                    let mut headers = HeaderMap::new();
+                    headers.insert(
+                        CONTENT_TYPE,
+                        HeaderValue::from_static("application/msgpack"),
+                    );
+                    headers
+                })
+                .body(bincode::serialize(&submission).expect("serialization works"))
+                .send()
+                .await?
+                .json()
+                .await?;
+        }
         Commands::SubmitDecryptionShares => todo!(),
         Commands::ComputeFheOutput => todo!(),
         Commands::RunFhe => todo!(),
