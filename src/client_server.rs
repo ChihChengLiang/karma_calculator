@@ -10,8 +10,6 @@ use phantom_zone::{
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ops::Deref;
-use std::{default, fs, vec};
 
 use rocket::tokio::sync::Mutex;
 use rocket::State;
@@ -41,10 +39,10 @@ struct ServerStorage {
     fhe_outputs: Vec<FheUint8>,
 }
 
-impl Default for ServerStorage {
-    fn default() -> Self {
+impl ServerStorage {
+    fn new(seed: [u8; 32]) -> Self {
         Self {
-            seed: Default::default(),
+            seed,
             users: vec![UserStorage::Empty, UserStorage::Empty, UserStorage::Empty],
             fhe_outputs: Default::default(),
         }
@@ -95,37 +93,8 @@ pub struct RegisteredUser {
 type UserList = Mutex<Vec<RegisteredUser>>;
 type Users<'r> = &'r State<UserList>;
 
-enum FHEOutput {
-    NotReady,
-    Ready(Vec<FheUint8>),
-}
-
-impl FHEOutput {
-    fn ready(&mut self, outs: &[FheUint8]) {
-        *self = Self::Ready(outs.to_vec())
-    }
-}
-
-type MutexFHEOutput = Mutex<FHEOutput>;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-struct Parameters {
-    seed: [u8; 32],
-}
-
-impl Parameters {
-    fn new(seed: [u8; 32]) -> Self {
-        Self { seed }
-    }
-}
-
-type CipherSubmissionMap = HashMap<UserId, CipherSubmission>;
-type MutexCipherSubmissionMap = Mutex<CipherSubmissionMap>;
-
 /// FheUint8 index -> user_id -> decryption share
 type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
-type MutexDecryptionSharesMap = Mutex<DecryptionSharesMap>;
 
 // TODO: how should the user get this value before everyone registered?
 const TOTAL_USERS: usize = 3;
@@ -483,8 +452,7 @@ pub fn rocket() -> _ {
 
     rocket::build()
         .manage(UserList::new(vec![]))
-        .manage(Parameters::new(seed))
-        .manage(MutexServerStorage::new(ServerStorage::default()))
+        .manage(MutexServerStorage::new(ServerStorage::new(seed)))
         .mount("/hello", routes![world])
         .mount(
             "/",
