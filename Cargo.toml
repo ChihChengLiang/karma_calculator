@@ -11,7 +11,9 @@ rocket = { version = "0.5.1", features = ["json", "msgpack"] }
 hex = "0.4.3"
 serde_json = { version = "1.0.120" }
 bincode = { version = "1.3.3" }
+rustyline = "11.0.0"
 
 reqwest = { version = "0.12.5", features = ["json"] }
 tokio = { version = "1.38.1", features = ["full"] }
 clap = { version = "4.5.9", features = ["derive"] }
+toml ={ version = "0.8.15"}

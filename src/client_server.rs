@@ -99,6 +99,9 @@ type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 // TODO: how should the user get this value before everyone registered?
 const TOTAL_USERS: usize = 3;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+// We're not sending the User struct in rockets. This macro is here just for Serde reasons
+#[serde(crate = "rocket::serde")]
 pub struct User {
     name: String,
     // step 0: get seed
