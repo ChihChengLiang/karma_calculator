@@ -33,6 +33,13 @@ type MutexServerStatus = Mutex<ServerStatus>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
+pub struct ServerResponse {
+    pub ok: bool,
+    pub msg: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
 enum ServerStatus {
     Waiting,
     RunningFhe,
@@ -320,18 +327,24 @@ async fn submit(
     submission: MsgPack<CipherSubmission>,
     users: Users<'_>,
     ss: &State<MutexServerStorage>,
-) -> Value {
+) -> Json<ServerResponse> {
     let user_id = submission.0.user_id;
 
     let mut users = users.lock().await;
     if users.len() <= user_id {
-        return json!({ "status": "fail", "reason": format!("{user_id} hasn't registered yet") });
+        return Json(ServerResponse {
+            ok: false,
+            msg: format!("{user_id} hasn't registered yet"),
+        });
     }
     let mut ss = ss.lock().await;
     ss.users[user_id] = UserStorage::CipherSks(submission.0.cipher_text, submission.0.sks);
 
     users[user_id].registration = Registration::CipherSubmitted;
-    json!({ "status": "ok", "user_id": user_id })
+    Json(ServerResponse {
+        ok: true,
+        msg: format!("{user_id}"),
+    })
 }
 
 fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUint8 {
