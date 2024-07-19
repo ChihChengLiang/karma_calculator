@@ -1,15 +1,17 @@
 use anyhow::{bail, Result};
-use std::fs;
+use std::{fs, iter::zip};
 
 use clap::command;
 use itertools::Itertools;
 use karma_calculator::{
-    setup, CipherSubmission, DecryptionShare, DecryptionShareSubmission, RegisteredUser,
-    RegistrationOut, User,
+    setup, Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, RegisteredUser,
+    RegistrationOut, ServerKeyShare, User, TOTAL_USERS,
 };
 use rustyline::{error::ReadlineError, DefaultEditor};
 
-use phantom_zone::{gen_client_key, ClientKey, FheUint8, MultiPartyDecryptor};
+use phantom_zone::{
+    gen_client_key, gen_server_key_share, ClientKey, Encryptor, FheUint8, MultiPartyDecryptor,
+};
 use tokio;
 
 use clap::{Parser, Subcommand};
@@ -96,6 +98,8 @@ struct EncryptedInput {
     user_id: usize,
     names: Vec<String>,
     scores: [u8; 4],
+    cipher: Cipher,
+    sks: ServerKeyShare,
 }
 
 struct StateWaitRun {
@@ -235,10 +239,45 @@ async fn run(state: State, line: &str) -> Result<State> {
                 user_id,
                 names,
             }) => {
-                let users: Vec<RegisteredUser> =
-                    reqwest::get(format!("{url}/users")).await?.json().await?;
-                println!("Users {:?}", users);
-                let names = users.iter().map(|reg| reg.name.clone()).collect_vec();
+                let score: Result<Vec<u8>> = args
+                    .iter()
+                    .map(|s| {
+                        s.parse::<u8>()
+                            .map_err(|err| anyhow::format_err!(err.to_string()))
+                    })
+                    .collect_vec()
+                    .into_iter()
+                    .collect();
+                let score = score?;
+                let total = score[0..3].iter().sum();
+                let scores: [u8; 4] = [score[0], score[1], score[2], total];
+                for (name, score) in zip(&names, score[0..3].iter()) {
+                    println!("Give {name} {score} karma");
+                }
+                println!("I gave out {total} karma");
+
+                println!("Encrypting Inputs");
+                let cipher = ck.encrypt(scores.as_slice());
+                println!("Generating server key share");
+                let sks = gen_server_key_share(user_id, TOTAL_USERS, &ck);
+
+                println!("Submit the cipher and the server key share");
+                let submission = CipherSubmission::new(user_id, cipher.clone(), sks.clone());
+                Client::new()
+                    .post(format!("{url}/submit"))
+                    .headers({
+                        let mut headers = HeaderMap::new();
+                        headers.insert(
+                            CONTENT_TYPE,
+                            HeaderValue::from_static("application/msgpack"),
+                        );
+                        headers
+                    })
+                    .body(bincode::serialize(&submission).expect("serialization works"))
+                    .send()
+                    .await?
+                    .json()
+                    .await?;
 
                 let scores = [0u8; 4];
                 return Ok(State::EncryptedInput(EncryptedInput {
@@ -247,7 +286,9 @@ async fn run(state: State, line: &str) -> Result<State> {
                     ck,
                     user_id,
                     names,
-                    scores: todo!(),
+                    scores,
+                    cipher,
+                    sks,
                 }));
             }
             _ => bail!("Expected StateGotNames"),
