@@ -85,7 +85,7 @@ enum Registration {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct RegisteredUser {
-    name: String,
+    pub name: String,
     registration: Registration,
 }
 

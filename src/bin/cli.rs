@@ -60,7 +60,7 @@ struct Cli2 {
 enum State {
     Init(StateInit),
     Setup(StateSetup),
-    GotNames,
+    GotNames(StateGotNames),
     EncryptedInput,
     WaitRun,
     DownloadedOutput,
@@ -157,14 +157,34 @@ async fn run(state: State, line: &str) -> Result<State, reqwest::Error> {
             _ => println!("Error: Expected state Init"),
         }
     } else if cmd == &"getNames" {
+        match state {
+            State::Setup(StateSetup {
+                name,
+                url,
+                ck,
+                user_id,
+            }) => {
+                let users: Vec<RegisteredUser> =
+                    reqwest::get(format!("{url}/users")).await?.json().await?;
+                println!("Users {:?}", users);
+                let names = users.iter().map(|reg| reg.name.clone()).collect_vec();
+                return Ok(State::GotNames(StateGotNames {
+                    name,
+                    url,
+                    ck,
+                    user_id,
+                    names,
+                }));
+            }
+            _ => println!("Error: Expected StateSetup"),
+        }
     } else if cmd == &"scoreEncrypt" {
-        if args.len() != 4 {
+        if args.len() != 3 {
             println!("Error: Invalid args: {:?}", args);
             return Ok(state);
         }
     } else if cmd == &"run" {
     } else if cmd == &"downloadResult" {
-        ctx.analyze_all();
     } else if cmd.starts_with("#") {
     } else {
         println!("Error: Unknown command {}", cmd);
