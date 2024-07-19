@@ -1,3 +1,4 @@
+use anyhow::{bail, Result};
 use std::fs;
 
 use clap::command;
@@ -61,7 +62,7 @@ enum State {
     Init(StateInit),
     Setup(StateSetup),
     GotNames(StateGotNames),
-    EncryptedInput,
+    EncryptedInput(EncryptedInput),
     WaitRun,
     DownloadedOutput,
     PublishedShares,
@@ -88,8 +89,17 @@ struct StateGotNames {
     names: Vec<String>,
 }
 
+struct EncryptedInput {
+    name: String,
+    url: String,
+    ck: ClientKey,
+    user_id: usize,
+    names: Vec<String>,
+    scores: [u8; 4],
+}
+
 #[tokio::main]
-async fn main() -> Result<(), reqwest::Error> {
+async fn main() -> Result<()> {
     let cli = Cli2::parse();
     let name = cli.name;
     let url: String = cli.url;
@@ -120,7 +130,7 @@ async fn main() -> Result<(), reqwest::Error> {
     Ok(())
 }
 
-async fn run(state: State, line: &str) -> Result<State, reqwest::Error> {
+async fn run(state: State, line: &str) -> Result<State> {
     let terms: Vec<&str> = line.split_whitespace().collect();
     if terms.len() == 0 {
         return Ok(state);
@@ -154,7 +164,7 @@ async fn run(state: State, line: &str) -> Result<State, reqwest::Error> {
                     user_id: reg.user_id,
                 }));
             }
-            _ => println!("Error: Expected state Init"),
+            _ => bail!("Expected state Init"),
         }
     } else if cmd == &"getNames" {
         match state {
@@ -176,18 +186,45 @@ async fn run(state: State, line: &str) -> Result<State, reqwest::Error> {
                     names,
                 }));
             }
-            _ => println!("Error: Expected StateSetup"),
+            _ => bail!("Expected StateSetup"),
         }
     } else if cmd == &"scoreEncrypt" {
         if args.len() != 3 {
             println!("Error: Invalid args: {:?}", args);
             return Ok(state);
         }
+        match state {
+            State::GotNames(StateGotNames {
+                name,
+                url,
+                ck,
+                user_id,
+                names,
+            }) => {
+                let users: Vec<RegisteredUser> =
+                    reqwest::get(format!("{url}/users")).await?.json().await?;
+                println!("Users {:?}", users);
+                let names = users.iter().map(|reg| reg.name.clone()).collect_vec();
+
+                let scores = [0u8;4];
+                args.as_bytes();
+                return Ok(State::EncryptedInput(EncryptedInput {
+                    name,
+                    url,
+                    ck,
+                    user_id,
+                    names,
+                    scores: todo!(),
+                }));
+            }
+            _ => bail!("Expected StateGotNames"),
+        }
+
     } else if cmd == &"run" {
     } else if cmd == &"downloadResult" {
     } else if cmd.starts_with("#") {
     } else {
-        println!("Error: Unknown command {}", cmd);
+        bail!("Unknown command {}", cmd);
     }
     Ok(state)
 }
