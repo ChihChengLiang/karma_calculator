@@ -22,7 +22,7 @@ use rocket::serde::{Deserialize, Serialize};
 type UserId = usize;
 type ServerKeyShare = Vec<u8>;
 type Cipher = Vec<u8>;
-type DecryptionShare = Vec<u64>;
+pub type DecryptionShare = Vec<u64>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -91,7 +91,7 @@ pub struct User {
     // step 4: get FHE output
     fhe_out: Option<Vec<FheUint8>>,
     // step 5: derive decryption shares
-    decryption_shares: DecryptionSharesMap,
+    pub decryption_shares: DecryptionSharesMap,
 }
 
 impl User {
@@ -229,10 +229,18 @@ impl<'r> CipherSubmission<'r> {
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-struct DecryptionShareSubmission<'r> {
+pub struct DecryptionShareSubmission<'r> {
     user_id: UserId,
     /// The user sends decryption share Vec<u64> for each FheUint8.
     decryption_shares: Cow<'r, Vec<Vec<u64>>>,
+}
+impl<'r> DecryptionShareSubmission<'r> {
+    pub fn new(user_id: usize, decryption_shares: &'r Vec<DecryptionShare>) -> Self {
+        Self {
+            user_id,
+            decryption_shares: Cow::Borrowed(decryption_shares),
+        }
+    }
 }
 
 #[get("/world")]
@@ -540,10 +548,9 @@ mod tests {
             user.set_fhe_out(fhe_output);
             user.gen_decryption_shares();
             let decryption_shares = &user.get_my_shares();
-            let submission = DecryptionShareSubmission {
-                user_id: user.id.expect("exist now"),
-                decryption_shares: Cow::Borrowed(decryption_shares),
-            };
+            let submission =
+                DecryptionShareSubmission::new(user.id.expect("exist now"), decryption_shares);
+
             client
                 .post("/submit_decryption_shares")
                 .msgpack(&submission)
