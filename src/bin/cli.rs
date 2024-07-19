@@ -9,7 +9,7 @@ use karma_calculator::{
 };
 use rustyline::{error::ReadlineError, DefaultEditor};
 
-use phantom_zone::{gen_client_key, ClientKey, FheUint8};
+use phantom_zone::{gen_client_key, ClientKey, FheUint8, MultiPartyDecryptor};
 use tokio;
 
 use clap::{Parser, Subcommand};
@@ -63,10 +63,10 @@ enum State {
     Setup(StateSetup),
     GotNames(StateGotNames),
     EncryptedInput(EncryptedInput),
-    WaitRun,
-    DownloadedOutput,
-    PublishedShares,
-    Decrypted,
+    WaitRun(StateWaitRun),
+    DownloadedOutput(StateDownloadedOuput),
+    PublishedShares(StatePublishedShares),
+    Decrypted(StateDecrypted),
 }
 
 struct StateInit {
@@ -96,6 +96,40 @@ struct EncryptedInput {
     user_id: usize,
     names: Vec<String>,
     scores: [u8; 4],
+}
+
+struct StateWaitRun {
+    name: String,
+    url: String,
+    ck: ClientKey,
+    user_id: usize,
+    names: Vec<String>,
+    scores: [u8; 4],
+}
+
+struct StateDownloadedOuput {
+    name: String,
+    url: String,
+    ck: ClientKey,
+    user_id: usize,
+    names: Vec<String>,
+    scores: [u8; 4],
+    fhe_out: Vec<FheUint8>,
+}
+
+struct StatePublishedShares {
+    name: String,
+    url: String,
+    ck: ClientKey,
+    user_id: usize,
+    names: Vec<String>,
+    scores: [u8; 4],
+    fhe_out: Vec<FheUint8>,
+    shares: (),
+}
+
+struct StateDecrypted {
+    out: (),
 }
 
 #[tokio::main]
@@ -206,7 +240,7 @@ async fn run(state: State, line: &str) -> Result<State> {
                 println!("Users {:?}", users);
                 let names = users.iter().map(|reg| reg.name.clone()).collect_vec();
 
-                let scores = [0u8;4];
+                let scores = [0u8; 4];
                 return Ok(State::EncryptedInput(EncryptedInput {
                     name,
                     url,
@@ -218,9 +252,94 @@ async fn run(state: State, line: &str) -> Result<State> {
             }
             _ => bail!("Expected StateGotNames"),
         }
+    } else if cmd == &"downloadOutput" {
+        // - Download fhe output
+        // - Generate my decryption key shares
+        // - Upload my decryption key shares
+        match state {
+            State::WaitRun(StateWaitRun {
+                name,
+                url,
+                ck,
+                user_id,
+                names,
+                scores,
+            }) => {
+                println!("Downloading fhe output");
+                let fhe_out: Vec<FheUint8> = reqwest::get(format!("{url}/fhe_output"))
+                    .await?
+                    .json()
+                    .await?;
+                println!("Generating my decrypting shares");
+                let mut my_decryption_shares = Vec::new();
+                for out in fhe_out.iter() {
+                    my_decryption_shares.push(ck.gen_decryption_share(out));
+                }
 
-    } else if cmd == &"run" {
-    } else if cmd == &"downloadResult" {
+                let submission = DecryptionShareSubmission::new(user_id, &my_decryption_shares);
+
+                println!("Submitting my decrypting shares");
+                Client::new()
+                    .post(format!("{url}/submit_decryption_shares"))
+                    .headers({
+                        let mut headers = HeaderMap::new();
+                        headers.insert(
+                            CONTENT_TYPE,
+                            HeaderValue::from_static("application/msgpack"),
+                        );
+                        headers
+                    })
+                    .body(bincode::serialize(&submission).expect("serialization works"))
+                    .send()
+                    .await?;
+
+                return Ok(State::DownloadedOutput(StateDownloadedOuput {
+                    name,
+                    url,
+                    ck,
+                    user_id,
+                    names,
+                    scores: todo!(),
+                    fhe_out,
+                }));
+            }
+            _ => bail!("Expected StateEncryptedInput"),
+        }
+    } else if cmd == &"downloadShares" {
+        // - Download others decryption key shares
+        // - Decrypt fhe output
+        match state {
+            State::DownloadedOutput(StateDownloadedOuput {
+                name,
+                url,
+                ck,
+                user_id,
+                names,
+                scores,
+                fhe_out,
+            }) => {
+                println!("Acquiring decryption shares needed");
+                // TODO
+                // for (output_id, user_id) in (0..3).cartesian_product(0..3) {
+                //     if me.decryption_shares.get(&(output_id, user_id)).is_none() {
+                //         println!(
+                //             "Acquiring user {user_id}'s decryption shares for output {output_id}"
+                //         );
+                //         let ds: DecryptionShare = reqwest::get(format!(
+                //             "{root_url}/decryption_share/{output_id}/{user_id}"
+                //         ))
+                //         .await?
+                //         .json()
+                //         .await?;
+                //         me.decryption_shares.insert((output_id, user_id), ds);
+                //     } else {
+                //         println!("Already have user {user_id}'s decryption shares for output {output_id}, skip.");
+                //     }
+                // }
+                return Ok(State::Decrypted(StateDecrypted { out: todo!() }));
+            }
+            _ => bail!("Expected StateDownloadedOuput"),
+        }
     } else if cmd.starts_with("#") {
     } else {
         bail!("Unknown command {}", cmd);
