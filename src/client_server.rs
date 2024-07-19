@@ -21,12 +21,12 @@ use rocket::serde::{Deserialize, Serialize};
 
 // The type to represent the ID of a message.
 type UserId = usize;
-type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
+pub type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
     Vec<Vec<u64>>,
     BoolParameters<u64>,
     NonInteractiveMultiPartyCrs<[u8; 32]>,
 >;
-type Cipher = SeededBatchedFheUint8<Vec<u64>, [u8; 32]>;
+pub type Cipher = SeededBatchedFheUint8<Vec<u64>, [u8; 32]>;
 pub type DecryptionShare = Vec<u64>;
 
 type MutexServerStorage = Mutex<ServerStorage>;
@@ -97,7 +97,7 @@ type Users<'r> = &'r State<UserList>;
 type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 
 // TODO: how should the user get this value before everyone registered?
-const TOTAL_USERS: usize = 3;
+pub const TOTAL_USERS: usize = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 // We're not sending the User struct in rockets. This macro is here just for Serde reasons
