@@ -4,7 +4,7 @@ use phantom_zone::{
     KeySwitchWithId, ParameterSelector, SampleExtractor,
 };
 
-use crate::{Cipher, DecryptionShare, ServerKeyShare, UserId};
+use crate::{Cipher, DecryptionShare, Seed, ServerKeyShare, UserId};
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -39,13 +39,13 @@ type MutexServerStorage = Mutex<ServerStorage>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 struct ServerStorage {
-    seed: [u8; 32],
+    seed: Seed,
     users: Vec<UserStorage>,
     fhe_outputs: Vec<FheUint8>,
 }
 
 impl ServerStorage {
-    fn new(seed: [u8; 32]) -> Self {
+    fn new(seed: Seed) -> Self {
         Self {
             seed,
             users: vec![UserStorage::Empty, UserStorage::Empty, UserStorage::Empty],
@@ -139,7 +139,7 @@ impl<'r> DecryptionShareSubmission<'r> {
 }
 
 #[get("/param")]
-async fn get_param(ss: &State<MutexServerStorage>) -> Json<[u8; 32]> {
+async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
     let ss = ss.lock().await;
     Json(ss.seed)
 }
@@ -337,7 +337,7 @@ async fn get_decryption_share(
     }
 }
 
-pub fn setup(seed: &[u8; 32]) {
+pub fn setup(seed: &Seed) {
     set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
     set_common_reference_seed(*seed);
 }

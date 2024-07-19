@@ -1,7 +1,5 @@
 use itertools::Itertools;
-use phantom_zone::{
-    gen_client_key, gen_server_key_share, Encryptor, MultiPartyDecryptor, SeededBatchedFheUint8,
-};
+use phantom_zone::{gen_client_key, gen_server_key_share, Encryptor, MultiPartyDecryptor};
 use std::collections::HashMap;
 
 use crate::*;
@@ -17,7 +15,7 @@ use rocket::{
 pub struct User {
     name: String,
     // step 0: get seed
-    seed: Option<[u8; 32]>,
+    seed: Option<Seed>,
     // step 0.5: gen client key
     ck: Option<ClientKey>,
     // step 1: get userID
@@ -53,7 +51,7 @@ impl User {
         self
     }
 
-    pub fn assign_seed(&mut self, seed: [u8; 32]) -> &mut Self {
+    pub fn assign_seed(&mut self, seed: Seed) -> &mut Self {
         self.seed = Some(seed);
         self
     }
@@ -79,7 +77,7 @@ impl User {
     pub fn gen_cipher(&mut self) -> &mut Self {
         let scores = self.scores.unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
-        let cipher: SeededBatchedFheUint8<Vec<u64>, [u8; 32]> = ck.encrypt(scores.as_slice());
+        let cipher: Cipher = ck.encrypt(scores.as_slice());
         self.cipher = Some(cipher);
         self
     }
@@ -155,7 +153,7 @@ fn full_flow() {
         let seed = client
             .get("/param")
             .dispatch()
-            .into_json::<[u8; 32]>()
+            .into_json::<Seed>()
             .expect("exists");
         user.assign_seed(seed);
         user.gen_client_key();
