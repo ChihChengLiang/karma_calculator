@@ -139,13 +139,6 @@ impl User {
 }
 
 #[test]
-fn hello() {
-    let client = Client::tracked(super::rocket()).unwrap();
-    let response = client.get("/hello/world").dispatch();
-    assert_eq!(response.into_string(), Some("Hello, world!".into()));
-}
-
-#[test]
 fn full_flow() {
     let client = Client::tracked(super::rocket()).unwrap();
 

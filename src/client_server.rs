@@ -1,11 +1,7 @@
 use itertools::Itertools;
-use phantom_zone::evaluator::NonInteractiveMultiPartyCrs;
-use phantom_zone::parameters::BoolParameters;
 use phantom_zone::{
-    aggregate_server_key_shares, gen_client_key, gen_server_key_share,
-    keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare, set_common_reference_seed,
-    set_parameter_set, ClientKey, Encryptor, FheUint8, KeySwitchWithId, MultiPartyDecryptor,
-    ParameterSelector, SampleExtractor, SeededBatchedFheUint8,
+    aggregate_server_key_shares, set_common_reference_seed, set_parameter_set, FheUint8,
+    KeySwitchWithId, ParameterSelector, SampleExtractor,
 };
 
 use crate::{Cipher, DecryptionShare, ServerKeyShare, UserId};
@@ -108,8 +104,6 @@ pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 // TODO: how should the user get this value before everyone registered?
 pub const TOTAL_USERS: usize = 3;
 
-
-
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct CipherSubmission {
@@ -142,11 +136,6 @@ impl<'r> DecryptionShareSubmission<'r> {
             decryption_shares: Cow::Borrowed(decryption_shares),
         }
     }
-}
-
-#[get("/world")]
-fn world() -> &'static str {
-    "Hello, world!"
 }
 
 #[get("/param")]
@@ -364,7 +353,6 @@ pub fn rocket() -> _ {
         .manage(UserList::new(vec![]))
         .manage(MutexServerStorage::new(ServerStorage::new(seed)))
         .manage(MutexServerStatus::new(ServerStatus::Waiting))
-        .mount("/hello", routes![world])
         .mount(
             "/",
             routes![
