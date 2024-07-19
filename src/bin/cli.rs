@@ -1,11 +1,11 @@
 use anyhow::{bail, Result};
-use std::{fs, iter::zip};
+use std::{collections::HashMap, fs, iter::zip};
 
 use clap::command;
 use itertools::Itertools;
 use karma_calculator::{
-    setup, Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, RegisteredUser,
-    RegistrationOut, ServerKeyShare, User, TOTAL_USERS,
+    setup, Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission,
+    DecryptionSharesMap, RegisteredUser, RegistrationOut, ServerKeyShare, User, TOTAL_USERS,
 };
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -119,6 +119,7 @@ struct StateDownloadedOuput {
     names: Vec<String>,
     scores: [u8; 4],
     fhe_out: Vec<FheUint8>,
+    shares: DecryptionSharesMap,
 }
 
 struct StatePublishedShares {
@@ -129,11 +130,14 @@ struct StatePublishedShares {
     names: Vec<String>,
     scores: [u8; 4],
     fhe_out: Vec<FheUint8>,
-    shares: (),
+    shares: DecryptionSharesMap,
 }
 
 struct StateDecrypted {
-    out: (),
+    names: Vec<String>,
+    fhe_out: Vec<FheUint8>,
+    shares: DecryptionSharesMap,
+    decrypted_output: Vec<u8>,
 }
 
 #[tokio::main]
@@ -312,11 +316,13 @@ async fn run(state: State, line: &str) -> Result<State> {
                     .json()
                     .await?;
                 println!("Generating my decrypting shares");
+                let mut shares = HashMap::new();
                 let mut my_decryption_shares = Vec::new();
-                for out in fhe_out.iter() {
-                    my_decryption_shares.push(ck.gen_decryption_share(out));
+                for (out_id, out) in fhe_out.iter().enumerate() {
+                    let share = ck.gen_decryption_share(out);
+                    my_decryption_shares.push(share.clone());
+                    shares.insert((out_id, user_id), share);
                 }
-
                 let submission = DecryptionShareSubmission::new(user_id, &my_decryption_shares);
 
                 println!("Submitting my decrypting shares");
@@ -340,8 +346,9 @@ async fn run(state: State, line: &str) -> Result<State> {
                     ck,
                     user_id,
                     names,
-                    scores: todo!(),
+                    scores,
                     fhe_out,
+                    shares,
                 }));
             }
             _ => bail!("Expected StateEncryptedInput"),
@@ -358,26 +365,51 @@ async fn run(state: State, line: &str) -> Result<State> {
                 names,
                 scores,
                 fhe_out,
+                mut shares,
             }) => {
                 println!("Acquiring decryption shares needed");
-                // TODO
-                // for (output_id, user_id) in (0..3).cartesian_product(0..3) {
-                //     if me.decryption_shares.get(&(output_id, user_id)).is_none() {
-                //         println!(
-                //             "Acquiring user {user_id}'s decryption shares for output {output_id}"
-                //         );
-                //         let ds: DecryptionShare = reqwest::get(format!(
-                //             "{root_url}/decryption_share/{output_id}/{user_id}"
-                //         ))
-                //         .await?
-                //         .json()
-                //         .await?;
-                //         me.decryption_shares.insert((output_id, user_id), ds);
-                //     } else {
-                //         println!("Already have user {user_id}'s decryption shares for output {output_id}, skip.");
-                //     }
-                // }
-                return Ok(State::Decrypted(StateDecrypted { out: todo!() }));
+                for (output_id, user_id) in (0..3).cartesian_product(0..3) {
+                    if shares.get(&(output_id, user_id)).is_none() {
+                        println!(
+                            "Acquiring user {user_id}'s decryption shares for output {output_id}"
+                        );
+                        let ds: DecryptionShare =
+                            reqwest::get(format!("{url}/decryption_share/{output_id}/{user_id}"))
+                                .await?
+                                .json()
+                                .await?;
+                        shares.insert((output_id, user_id), ds);
+                    } else {
+                        println!("Already have user {user_id}'s decryption shares for output {output_id}, skip.");
+                    }
+                }
+                println!("Decrypt the encrypted output");
+                let decrypted_output = fhe_out
+                    .iter()
+                    .enumerate()
+                    .map(|(output_id, output)| {
+                        let decryption_shares = (0..TOTAL_USERS)
+                            .map(|user_id| {
+                                shares
+                                    .get(&(output_id, user_id))
+                                    .expect("exists")
+                                    .to_owned()
+                            })
+                            .collect_vec();
+                        ck.aggregate_decryption_shares(output, &decryption_shares)
+                    })
+                    .collect_vec();
+                println!("final decrypted output:");
+                for (name, output) in zip(&names, &decrypted_output) {
+                    println!("\t{} has {} karma", name, output);
+                }
+
+                return Ok(State::Decrypted(StateDecrypted {
+                    names,
+                    fhe_out,
+                    shares,
+                    decrypted_output,
+                }));
             }
             _ => bail!("Expected StateDownloadedOuput"),
         }
