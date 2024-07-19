@@ -8,6 +8,7 @@ use crate::{Cipher, DecryptionShare, Seed, ServerKeyShare, UserId};
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt::format;
 
 use rocket::tokio::sync::Mutex;
 use rocket::{get, launch, post, routes};
@@ -24,6 +25,22 @@ type MutexServerStatus = Mutex<ServerStatus>;
 pub struct ServerResponse {
     pub ok: bool,
     pub msg: String,
+}
+
+impl ServerResponse {
+    fn ok(user_id: UserId) -> Self {
+        Self {
+            ok: true,
+            msg: format!("{user_id}"),
+        }
+    }
+
+    fn fail_unregistered_user(user_id: UserId) -> Self {
+        Self {
+            ok: false,
+            msg: format!("User {user_id} hasn't registered yet"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,19 +201,15 @@ async fn submit(
 
     let mut users = users.lock().await;
     if users.len() <= user_id {
-        return Json(ServerResponse {
-            ok: false,
-            msg: format!("{user_id} hasn't registered yet"),
-        });
+        return Json(ServerResponse::fail(format!(
+            "{user_id} hasn't registered yet"
+        )));
     }
     let mut ss = ss.lock().await;
     ss.users[user_id] = UserStorage::CipherSks(submission.0.cipher_text, submission.0.sks);
 
     users[user_id].registration = Registration::CipherSubmitted;
-    Json(ServerResponse {
-        ok: true,
-        msg: format!("{user_id}"),
-    })
+    Json(ServerResponse::ok(format!("{user_id}")))
 }
 
 fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUint8 {
