@@ -29,6 +29,16 @@ pub type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKey
 pub type Cipher = SeededBatchedFheUint8<Vec<u64>, [u8; 32]>;
 pub type DecryptionShare = Vec<u64>;
 
+type MutexServerStatus = Mutex<ServerStatus>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+enum ServerStatus {
+    Waiting,
+    RunningFhe,
+    CompletedFhe,
+}
+
 type MutexServerStorage = Mutex<ServerStorage>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -330,10 +340,28 @@ fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUin
 
 /// The admin runs the fhe computation
 #[post("/run")]
-async fn run(users: Users<'_>, ss: &State<MutexServerStorage>) -> Value {
+async fn run(
+    users: Users<'_>,
+    ss: &State<MutexServerStorage>,
+    status: &State<MutexServerStatus>,
+) -> Value {
+    let mut s = status.lock().await;
+    match *s {
+        ServerStatus::Waiting => {
+            *s = ServerStatus::RunningFhe;
+        }
+        ServerStatus::RunningFhe => {
+            return json!( {"status": "fail", "reason": "Fhe computation already running"});
+        }
+        ServerStatus::CompletedFhe => {
+            return json!( {"status": "ok", "reason": "Fhe computation completed"});
+        }
+    }
+    drop(s);
     let users = users.lock().await;
     println!("checking if we have all user submissions");
     if users.len() < TOTAL_USERS {
+        *status.lock().await = ServerStatus::Waiting;
         return json!( {"status": "fail", "reason":"some users haven't registered yet"});
     }
     println!("load server keys and ciphers");
@@ -347,6 +375,7 @@ async fn run(users: Users<'_>, ss: &State<MutexServerStorage>) -> Value {
             ciphers.push(cipher.clone());
             ss.users[user_id] = UserStorage::DecryptionShare(None);
         } else {
+            *status.lock().await = ServerStatus::Waiting;
             return json!( {"status": "fail", "reason":format!("can't find cipher submission from user {user_id}")});
         }
     }
@@ -386,6 +415,8 @@ async fn run(users: Users<'_>, ss: &State<MutexServerStorage>) -> Value {
         outs.push(ct_out)
     }
     ss.fhe_outputs = outs;
+
+    *status.lock().await = ServerStatus::CompletedFhe;
 
     json!({ "status": "ok"})
 }
@@ -456,6 +487,7 @@ pub fn rocket() -> _ {
     rocket::build()
         .manage(UserList::new(vec![]))
         .manage(MutexServerStorage::new(ServerStorage::new(seed)))
+        .manage(MutexServerStatus::new(ServerStatus::Waiting))
         .mount("/hello", routes![world])
         .mount(
             "/",
