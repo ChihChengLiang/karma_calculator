@@ -94,7 +94,7 @@ type UserList = Mutex<Vec<RegisteredUser>>;
 type Users<'r> = &'r State<UserList>;
 
 /// FheUint8 index -> user_id -> decryption share
-type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
+pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 
 // TODO: how should the user get this value before everyone registered?
 pub const TOTAL_USERS: usize = 3;
