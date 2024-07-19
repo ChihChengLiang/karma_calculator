@@ -1265,6 +1265,7 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 [[package]]
 name = "phantom-zone"
 version = "0.1.0"
+source = "git+https://github.com/ChihChengLiang/phantom-zone?branch=serde#76d8abecdb1d97322fcb14e603fd2a8e3f95fdfc"
 dependencies = [
  "itertools",
  "num-bigint-dig",

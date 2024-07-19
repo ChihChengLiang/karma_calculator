@@ -207,7 +207,6 @@ async fn run(state: State, line: &str) -> Result<State> {
                 let names = users.iter().map(|reg| reg.name.clone()).collect_vec();
 
                 let scores = [0u8;4];
-                args.as_bytes();
                 return Ok(State::EncryptedInput(EncryptedInput {
                     name,
                     url,

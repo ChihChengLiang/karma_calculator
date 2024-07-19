@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-phantom-zone = { path = "../phantom-zone", features = ["non_interactive_mp"] }
+phantom-zone = { git = "https://github.com/ChihChengLiang/phantom-zone", branch = "serde", features = [
+    "non_interactive_mp",
+] }
 rand = "*"
 itertools = "0.12.0"
 rocket = { version = "0.5.1", features = ["json", "msgpack"] }
@@ -16,5 +18,5 @@ rustyline = "11.0.0"
 reqwest = { version = "0.12.5", features = ["json"] }
 tokio = { version = "1.38.1", features = ["full"] }
 clap = { version = "4.5.9", features = ["derive"] }
-toml ={ version = "0.8.15"}
-anyhow = {version = "1.0.86"}
+toml = { version = "0.8.15" }
+anyhow = { version = "1.0.86" }
