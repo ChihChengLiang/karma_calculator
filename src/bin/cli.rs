@@ -5,8 +5,10 @@ use clap::command;
 use itertools::Itertools;
 use karma_calculator::{
     setup, Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission,
-    DecryptionSharesMap, RegisteredUser, RegistrationOut, ServerKeyShare, TOTAL_USERS,
+    DecryptionSharesMap, RegisteredUser, RegistrationOut, ServerKeyShare, ServerResponse,
+    TOTAL_USERS,
 };
+use rocket::serde::msgpack;
 use rustyline::{error::ReadlineError, DefaultEditor};
 
 use phantom_zone::{
@@ -236,7 +238,7 @@ async fn run(state: State, line: &str) -> Result<State> {
 
                 println!("Submit the cipher and the server key share");
                 let submission = CipherSubmission::new(user_id, cipher.clone(), sks.clone());
-                Client::new()
+                let response: ServerResponse = Client::new()
                     .post(format!("{url}/submit"))
                     .headers({
                         let mut headers = HeaderMap::new();
@@ -246,7 +248,7 @@ async fn run(state: State, line: &str) -> Result<State> {
                         );
                         headers
                     })
-                    .body(bincode::serialize(&submission).expect("serialization works"))
+                    .body(msgpack::to_compact_vec(&submission).expect("works"))
                     .send()
                     .await?
                     .json()
@@ -305,7 +307,7 @@ async fn run(state: State, line: &str) -> Result<State> {
                         );
                         headers
                     })
-                    .body(bincode::serialize(&submission).expect("serialization works"))
+                    .body(msgpack::to_compact_vec(&submission).expect("serialization works"))
                     .send()
                     .await?;
 
