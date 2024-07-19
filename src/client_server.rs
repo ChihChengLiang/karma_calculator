@@ -1,14 +1,17 @@
 use itertools::Itertools;
+use phantom_zone::evaluator::NonInteractiveMultiPartyCrs;
+use phantom_zone::parameters::BoolParameters;
 use phantom_zone::{
-    aggregate_server_key_shares, gen_client_key, gen_server_key_share, set_common_reference_seed,
+    aggregate_server_key_shares, gen_client_key, gen_server_key_share,
+    keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare, set_common_reference_seed,
     set_parameter_set, ClientKey, Encryptor, FheUint8, KeySwitchWithId, MultiPartyDecryptor,
     ParameterSelector, SampleExtractor, SeededBatchedFheUint8,
 };
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fs;
 use std::ops::Deref;
+use std::{default, fs, vec};
 
 use rocket::tokio::sync::Mutex;
 use rocket::State;
@@ -20,9 +23,58 @@ use rocket::serde::{Deserialize, Serialize};
 
 // The type to represent the ID of a message.
 type UserId = usize;
-type ServerKeyShare = Vec<u8>;
-type Cipher = Vec<u8>;
+type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
+    Vec<Vec<u64>>,
+    BoolParameters<u64>,
+    NonInteractiveMultiPartyCrs<[u8; 32]>,
+>;
+type Cipher = SeededBatchedFheUint8<Vec<u64>, [u8; 32]>;
 pub type DecryptionShare = Vec<u64>;
+
+type MutexServerStorage = Mutex<ServerStorage>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct ServerStorage {
+    seed: [u8; 32],
+    users: Vec<UserStorage>,
+    fhe_outputs: Vec<FheUint8>,
+}
+
+impl Default for ServerStorage {
+    fn default() -> Self {
+        Self {
+            seed: Default::default(),
+            users: vec![UserStorage::Empty, UserStorage::Empty, UserStorage::Empty],
+            fhe_outputs: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(crate = "rocket::serde")]
+enum UserStorage {
+    #[default]
+    Empty,
+    CipherSks(Cipher, ServerKeyShare),
+    DecryptionShare(Option<Vec<DecryptionShare>>),
+}
+
+impl UserStorage {
+    fn get_cipher_sks(&self) -> Option<(&Cipher, &ServerKeyShare)> {
+        match self {
+            Self::CipherSks(cipher, sks) => Some((cipher, sks)),
+            _ => None,
+        }
+    }
+
+    fn get_mut_decryption_shares(&mut self) -> Option<&mut Option<Vec<DecryptionShare>>> {
+        match self {
+            Self::DecryptionShare(ds) => Some(ds),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -67,6 +119,9 @@ impl Parameters {
         Self { seed }
     }
 }
+
+type CipherSubmissionMap = HashMap<UserId, CipherSubmission>;
+type MutexCipherSubmissionMap = Mutex<CipherSubmissionMap>;
 
 /// FheUint8 index -> user_id -> decryption share
 type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
@@ -140,10 +195,7 @@ impl User {
     pub fn gen_cipher(&mut self) -> &mut Self {
         let scores = self.scores.unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
-        let cipher = ck.encrypt(scores.as_slice());
-        let cipher = bincode::serialize(&cipher).unwrap();
-        // typically 16440. 17 KB
-        println!("cipher size {}", cipher.len());
+        let cipher: SeededBatchedFheUint8<Vec<u64>, [u8; 32]> = ck.encrypt(scores.as_slice());
         self.cipher = Some(cipher);
         self
     }
@@ -151,9 +203,6 @@ impl User {
     pub fn gen_server_key_share(&mut self) -> &mut Self {
         let server_key =
             gen_server_key_share(self.id.unwrap(), TOTAL_USERS, self.ck.as_ref().unwrap());
-        let server_key = bincode::serialize(&server_key).unwrap();
-        // typically 226383808. 226 MB
-        println!("server_key size {}", server_key.len());
         self.server_key = Some(server_key);
         self
     }
@@ -211,18 +260,18 @@ impl User {
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct CipherSubmission<'r> {
+pub struct CipherSubmission {
     user_id: UserId,
-    cipher_text: Cow<'r, Cipher>,
-    sks: Cow<'r, ServerKeyShare>,
+    cipher_text: Cipher,
+    sks: ServerKeyShare,
 }
 
-impl<'r> CipherSubmission<'r> {
-    pub fn new(user_id: usize, cipher_text: &'r Vec<u8>, sks: &'r Vec<u8>) -> Self {
+impl CipherSubmission {
+    pub fn new(user_id: usize, cipher_text: Cipher, sks: ServerKeyShare) -> Self {
         Self {
             user_id,
-            cipher_text: Cow::Borrowed(cipher_text),
-            sks: Cow::Borrowed(sks),
+            cipher_text,
+            sks,
         }
     }
 }
@@ -232,7 +281,7 @@ impl<'r> CipherSubmission<'r> {
 pub struct DecryptionShareSubmission<'r> {
     user_id: UserId,
     /// The user sends decryption share Vec<u64> for each FheUint8.
-    decryption_shares: Cow<'r, Vec<Vec<u64>>>,
+    decryption_shares: Cow<'r, Vec<DecryptionShare>>,
 }
 impl<'r> DecryptionShareSubmission<'r> {
     pub fn new(user_id: usize, decryption_shares: &'r Vec<DecryptionShare>) -> Self {
@@ -249,8 +298,9 @@ fn world() -> &'static str {
 }
 
 #[get("/param")]
-fn get_param(param: &State<Parameters>) -> Json<[u8; 32]> {
-    Json(param.seed)
+async fn get_param(ss: &State<MutexServerStorage>) -> Json<[u8; 32]> {
+    let ss = ss.lock().await;
+    Json(ss.seed)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -284,20 +334,20 @@ async fn get_users(users: Users<'_>) -> Json<Vec<RegisteredUser>> {
 
 /// The user submits the ciphertext
 #[post("/submit", data = "<submission>", format = "msgpack")]
-async fn submit(submission: MsgPack<CipherSubmission<'_>>, users: Users<'_>) -> Value {
-    let user_id = submission.user_id;
-    let data_path = std::env::temp_dir().join(format!("user_{user_id}.dat"));
-    fs::write(
-        data_path,
-        bincode::serialize(&submission.0).expect("serialize success"),
-    )
-    .expect("sucess");
+async fn submit(
+    submission: MsgPack<CipherSubmission>,
+    users: Users<'_>,
+    ss: &State<MutexServerStorage>,
+) -> Value {
+    let user_id = submission.0.user_id;
 
     let mut users = users.lock().await;
-
     if users.len() <= user_id {
         return json!({ "status": "fail", "reason": format!("{user_id} hasn't registered yet") });
     }
+    let mut ss = ss.lock().await;
+    ss.users[user_id] = UserStorage::CipherSks(submission.0.cipher_text, submission.0.sks);
+
     users[user_id].registration = Registration::CipherSubmitted;
     json!({ "status": "ok", "user_id": user_id })
 }
@@ -308,46 +358,37 @@ fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUin
 
 /// The admin runs the fhe computation
 #[post("/run")]
-async fn run(users: Users<'_>, fhe_output: &'_ State<MutexFHEOutput>) -> Value {
+async fn run(users: Users<'_>, ss: &State<MutexServerStorage>) -> Value {
     let users = users.lock().await;
     println!("checking if we have all user submissions");
     if users.len() < TOTAL_USERS {
         return json!( {"status": "fail", "reason":"some users haven't registered yet"});
     }
     println!("load server keys and ciphers");
+    let mut ss = ss.lock().await;
 
-    let mut submissions = vec![];
+    let mut server_key_shares = vec![];
+    let mut ciphers = vec![];
     for (user_id, _user) in users.iter().enumerate() {
-        let data_path = std::env::temp_dir().join(format!("user_{user_id}.dat"));
-        if let Ok(data) = fs::read(data_path) {
-            let submission: CipherSubmission =
-                bincode::deserialize(&data).expect("deserialize success");
-            submissions.push(submission);
+        if let Some((cipher, sks)) = ss.users[user_id].get_cipher_sks() {
+            server_key_shares.push(sks.clone());
+            ciphers.push(cipher.clone());
+            ss.users[user_id] = UserStorage::DecryptionShare(None);
         } else {
             return json!( {"status": "fail", "reason":format!("can't find cipher submission from user {user_id}")});
         }
     }
 
-    println!("collect serialized server keys");
-
-    let server_key_shares = &submissions
-        .iter()
-        .map(|s| bincode::deserialize(&s.sks).unwrap())
-        .collect_vec();
     println!("aggregate server key shares");
     let now = std::time::Instant::now();
-    let server_key = aggregate_server_key_shares(server_key_shares);
+    let server_key = aggregate_server_key_shares(server_key_shares.as_slice());
     println!("server key aggregation time: {:?}", now.elapsed());
     println!("set server key");
     server_key.set_server_key();
 
     println!("collect serialized cipher texts");
-    let cipher_texts: &Vec<SeededBatchedFheUint8<_, _>> = &submissions
-        .iter()
-        .map(|s| bincode::deserialize(&s.cipher_text).unwrap())
-        .collect_vec();
 
-    let encs = &cipher_texts
+    let encs = ciphers
         .iter()
         .map(|c| c.unseed::<Vec<Vec<u64>>>())
         .collect_vec();
@@ -372,19 +413,19 @@ async fn run(users: Users<'_>, fhe_output: &'_ State<MutexFHEOutput>) -> Value {
         println!("sum_fhe evaluation time: {:?}", now.elapsed());
         outs.push(ct_out)
     }
-    fhe_output.lock().await.ready(&outs);
+    ss.fhe_outputs = outs;
 
     json!({ "status": "ok"})
 }
 
 #[get("/fhe_output")]
-async fn get_fhe_output(
-    fhe_output: &'_ State<MutexFHEOutput>,
-) -> Result<Json<Vec<FheUint8>>, Value> {
-    let fhe_output = fhe_output.lock().await;
-    match fhe_output.deref() {
-        FHEOutput::NotReady => Err(json!({"status": "fail", "reason":"output not ready yet"})),
-        FHEOutput::Ready(output) => Ok(Json(output.to_vec())),
+async fn get_fhe_output(ss: &State<MutexServerStorage>) -> Result<Json<Vec<FheUint8>>, Value> {
+    let ss: tokio::sync::MutexGuard<ServerStorage> = ss.lock().await;
+
+    if ss.fhe_outputs.is_empty() {
+        Err(json!({"status": "fail", "reason":"output not ready yet"}))
+    } else {
+        Ok(Json(ss.fhe_outputs.clone()))
     }
 }
 
@@ -392,14 +433,16 @@ async fn get_fhe_output(
 #[post("/submit_decryption_shares", data = "<submission>", format = "msgpack")]
 async fn submit_decryption_shares(
     submission: MsgPack<DecryptionShareSubmission<'_>>,
-    decryption_shares: &'_ State<MutexDecryptionSharesMap>,
+    ss: &State<MutexServerStorage>,
     users: Users<'_>,
 ) -> Value {
     let user_id = submission.user_id;
-    let mut decryption_shares = decryption_shares.lock().await;
-    for (output_id, ds) in submission.decryption_shares.iter().enumerate() {
-        decryption_shares.insert((output_id, user_id), ds.to_vec());
-    }
+    let mut ss = ss.lock().await;
+    let decryption_shares = match ss.users[user_id].get_mut_decryption_shares() {
+        Some(ds) => ds,
+        None => return json!({"status": "fail", "reason":"The FHE computations has not been run"}),
+    };
+    *decryption_shares = Some(submission.decryption_shares.to_vec());
 
     let mut users = users.lock().await;
 
@@ -411,14 +454,18 @@ async fn submit_decryption_shares(
 async fn get_decryption_share(
     fhe_output_id: usize,
     user_id: UserId,
-    decryption_shares: &'_ State<MutexDecryptionSharesMap>,
+    ss: &State<MutexServerStorage>,
 ) -> Result<Json<DecryptionShare>, Value> {
-    let decryption_shares = decryption_shares.lock().await;
-    match decryption_shares.deref().get(&(fhe_output_id, user_id)) {
-        None => Err(
-            json!({"stats": "fail", "reason": format!("find no decryption shares for output {} and user {}", fhe_output_id, user_id)}),
-        ),
-        Some(share) => Ok(Json(share.to_vec())),
+    let mut ss = ss.lock().await;
+    match ss.users[user_id].get_mut_decryption_shares() {
+        None => Err(json!({"status": "fail", "reason":"The FHE computations has not been run"})),
+
+        Some(decryption_shares_option) => match decryption_shares_option {
+            Some(decryption_shares) => Ok(Json(decryption_shares[fhe_output_id].clone())),
+            None => Err(
+                json!({"stats": "fail", "reason": format!("find no decryption shares for output {} and user {}", fhe_output_id, user_id)}),
+            ),
+        },
     }
 }
 
@@ -437,8 +484,7 @@ pub fn rocket() -> _ {
     rocket::build()
         .manage(UserList::new(vec![]))
         .manage(Parameters::new(seed))
-        .manage(MutexFHEOutput::new(FHEOutput::NotReady))
-        .manage(MutexDecryptionSharesMap::new(HashMap::new()))
+        .manage(MutexServerStorage::new(ServerStorage::default()))
         .mount("/hello", routes![world])
         .mount(
             "/",
@@ -457,7 +503,6 @@ pub fn rocket() -> _ {
 
 #[cfg(test)]
 mod tests {
-    use std::iter::zip;
 
     use super::*;
     use rocket::local::blocking::Client;
@@ -526,8 +571,8 @@ mod tests {
 
             let submission = CipherSubmission::new(
                 user_id,
-                user.cipher.as_ref().unwrap(),
-                user.server_key.as_ref().unwrap(),
+                user.cipher.to_owned().unwrap(),
+                user.server_key.to_owned().unwrap(),
             );
             let now = std::time::Instant::now();
             client.post("/submit").msgpack(&submission).dispatch();

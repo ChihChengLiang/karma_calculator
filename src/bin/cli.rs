@@ -105,8 +105,8 @@ async fn main() -> Result<(), reqwest::Error> {
         Commands::SubmitCipher => {
             let submission = CipherSubmission::new(
                 me.id.expect("id exists"),
-                me.cipher.as_ref().expect("exists"),
-                &me.server_key.as_ref().expect("exists"),
+                me.cipher.to_owned().expect("exists"),
+                me.server_key.to_owned().expect("exists"),
             );
             Client::new()
                 .post(format!("{root_url}/submit"))
