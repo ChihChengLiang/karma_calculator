@@ -28,18 +28,49 @@ pub struct ServerResponse {
 }
 
 impl ServerResponse {
-    fn ok(user_id: UserId) -> Self {
+    fn ok(msg: &str) -> Self {
         Self {
             ok: true,
-            msg: format!("{user_id}"),
+            msg: msg.to_string(),
         }
     }
-
-    fn fail_unregistered_user(user_id: UserId) -> Self {
+    fn err(msg: &str) -> Self {
         Self {
             ok: false,
-            msg: format!("User {user_id} hasn't registered yet"),
+            msg: msg.to_string(),
         }
+    }
+    fn ok_user(user_id: UserId) -> Self {
+        Self::ok(&format!("{user_id}"))
+    }
+
+    fn err_unregistered_user(user_id: UserId) -> Self {
+        Self::err(&format!("User {user_id} hasn't registered yet"))
+    }
+
+    fn err_unregistered_users(user_len: usize) -> Self {
+        Self::err(&format!(
+            "Some users haven't registered yet. Want {TOTAL_USERS}  Got {user_len}"
+        ))
+    }
+    fn err_run_in_progress() -> Self {
+        Self::err("Fhe computation already running")
+    }
+
+    fn err_run_already_end() -> Self {
+        Self::err("Fhe computation completed")
+    }
+    fn err_missing_submission(user_id: UserId) -> Self {
+        Self::err(&format!("can't find cipher submission from user {user_id}"))
+    }
+    fn err_output_not_ready() -> Self {
+        Self::err("FHE output not ready yet")
+    }
+
+    fn err_decryption_share_not_found(output_id: usize, user_id: UserId) -> Self {
+        Self::err(&format!(
+            "Decryption share of {output_id} from user {user_id} not found"
+        ))
     }
 }
 
@@ -201,15 +232,13 @@ async fn submit(
 
     let mut users = users.lock().await;
     if users.len() <= user_id {
-        return Json(ServerResponse::fail(format!(
-            "{user_id} hasn't registered yet"
-        )));
+        return Json(ServerResponse::err_unregistered_user(user_id));
     }
     let mut ss = ss.lock().await;
     ss.users[user_id] = UserStorage::CipherSks(submission.0.cipher_text, submission.0.sks);
 
     users[user_id].registration = Registration::CipherSubmitted;
-    Json(ServerResponse::ok(format!("{user_id}")))
+    Json(ServerResponse::ok_user(user_id))
 }
 
 fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUint8 {
@@ -222,17 +251,17 @@ async fn run(
     users: Users<'_>,
     ss: &State<MutexServerStorage>,
     status: &State<MutexServerStatus>,
-) -> Value {
+) -> Json<ServerResponse> {
     let mut s = status.lock().await;
     match *s {
         ServerStatus::Waiting => {
             *s = ServerStatus::RunningFhe;
         }
         ServerStatus::RunningFhe => {
-            return json!( {"status": "fail", "reason": "Fhe computation already running"});
+            return Json(ServerResponse::err_run_in_progress());
         }
         ServerStatus::CompletedFhe => {
-            return json!( {"status": "ok", "reason": "Fhe computation completed"});
+            return Json(ServerResponse::err_run_already_end());
         }
     }
     drop(s);
@@ -240,7 +269,7 @@ async fn run(
     println!("checking if we have all user submissions");
     if users.len() < TOTAL_USERS {
         *status.lock().await = ServerStatus::Waiting;
-        return json!( {"status": "fail", "reason":"some users haven't registered yet"});
+        return Json(ServerResponse::err_unregistered_users(users.len()));
     }
     println!("load server keys and ciphers");
     let mut ss = ss.lock().await;
@@ -254,7 +283,7 @@ async fn run(
             ss.users[user_id] = UserStorage::DecryptionShare(None);
         } else {
             *status.lock().await = ServerStatus::Waiting;
-            return json!( {"status": "fail", "reason":format!("can't find cipher submission from user {user_id}")});
+            return Json(ServerResponse::err_missing_submission(user_id));
         }
     }
 
@@ -296,15 +325,16 @@ async fn run(
 
     *status.lock().await = ServerStatus::CompletedFhe;
 
-    json!({ "status": "ok"})
+    Json(ServerResponse::ok("FHE complete"))
 }
 
 #[get("/fhe_output")]
-async fn get_fhe_output(ss: &State<MutexServerStorage>) -> Result<Json<Vec<FheUint8>>, Value> {
+async fn get_fhe_output(
+    ss: &State<MutexServerStorage>,
+) -> Result<Json<Vec<FheUint8>>, Json<ServerResponse>> {
     let ss: tokio::sync::MutexGuard<ServerStorage> = ss.lock().await;
-
     if ss.fhe_outputs.is_empty() {
-        Err(json!({"status": "fail", "reason":"output not ready yet"}))
+        Err(Json(ServerResponse::err_output_not_ready()))
     } else {
         Ok(Json(ss.fhe_outputs.clone()))
     }
@@ -316,19 +346,19 @@ async fn submit_decryption_shares(
     submission: MsgPack<DecryptionShareSubmission<'_>>,
     ss: &State<MutexServerStorage>,
     users: Users<'_>,
-) -> Value {
+) -> Json<ServerResponse> {
     let user_id = submission.user_id;
     let mut ss = ss.lock().await;
     let decryption_shares = match ss.users[user_id].get_mut_decryption_shares() {
         Some(ds) => ds,
-        None => return json!({"status": "fail", "reason":"The FHE computations has not been run"}),
+        None => return Json(ServerResponse::err_output_not_ready()),
     };
     *decryption_shares = Some(submission.decryption_shares.to_vec());
 
     let mut users = users.lock().await;
 
     users[user_id].registration = Registration::DecryptionShareSubmitted;
-    json!({ "status": "ok", "user_id": user_id })
+    Json(ServerResponse::ok_user(user_id))
 }
 
 #[get("/decryption_share/<fhe_output_id>/<user_id>")]
@@ -336,16 +366,16 @@ async fn get_decryption_share(
     fhe_output_id: usize,
     user_id: UserId,
     ss: &State<MutexServerStorage>,
-) -> Result<Json<DecryptionShare>, Value> {
+) -> Result<Json<DecryptionShare>, Json<ServerResponse>> {
     let mut ss = ss.lock().await;
     match ss.users[user_id].get_mut_decryption_shares() {
-        None => Err(json!({"status": "fail", "reason":"The FHE computations has not been run"})),
-
+        None => Err(Json(ServerResponse::err_output_not_ready())),
         Some(decryption_shares_option) => match decryption_shares_option {
             Some(decryption_shares) => Ok(Json(decryption_shares[fhe_output_id].clone())),
-            None => Err(
-                json!({"stats": "fail", "reason": format!("find no decryption shares for output {} and user {}", fhe_output_id, user_id)}),
-            ),
+            None => Err(Json(ServerResponse::err_decryption_share_not_found(
+                fhe_output_id,
+                user_id,
+            ))),
         },
     }
 }
