@@ -57,8 +57,8 @@ impl ServerResponse {
         Self::err("Fhe computation already running")
     }
 
-    fn err_run_already_end() -> Self {
-        Self::err("Fhe computation completed")
+    fn ok_run_already_end() -> Self {
+        Self::ok("Fhe computation completed")
     }
     fn err_missing_submission(user_id: UserId) -> Self {
         Self::err(&format!("can't find cipher submission from user {user_id}"))
@@ -261,7 +261,7 @@ async fn run(
             return Json(ServerResponse::err_run_in_progress());
         }
         ServerStatus::CompletedFhe => {
-            return Json(ServerResponse::err_run_already_end());
+            return Json(ServerResponse::ok_run_already_end());
         }
     }
     drop(s);
@@ -286,7 +286,8 @@ async fn run(
             return Json(ServerResponse::err_missing_submission(user_id));
         }
     }
-
+    // HACK to make sure that paremeters are set in each thread.
+    set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
     println!("aggregate server key shares");
     let now = std::time::Instant::now();
     let server_key = aggregate_server_key_shares(server_key_shares.as_slice());
