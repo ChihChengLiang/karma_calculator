@@ -896,6 +896,7 @@ dependencies = [
  "reqwest",
  "rocket",
  "rustyline",
+ "serde",
  "serde_json",
  "tokio",
  "toml",

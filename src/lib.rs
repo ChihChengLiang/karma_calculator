@@ -6,7 +6,7 @@ pub use client_server::{
     RegisteredUser, RegistrationOut, ServerResponse, TOTAL_USERS,
 };
 
-pub use types::{Cipher, ClientKey, DecryptionShare, FheUint8, ServerKeyShare, UserId, Seed};
+pub use types::{Cipher, ClientKey, DecryptionShare, FheUint8, Seed, ServerKeyShare, UserId};
 
 #[cfg(test)]
 mod tests;

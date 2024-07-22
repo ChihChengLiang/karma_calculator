@@ -1,11 +1,12 @@
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, Error};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, iter::zip};
 
 use clap::command;
 use itertools::Itertools;
 use karma_calculator::{
     setup, Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission,
-    DecryptionSharesMap, RegisteredUser, RegistrationOut, ServerKeyShare, ServerResponse,
+    DecryptionSharesMap, RegisteredUser, RegistrationOut, Seed, ServerKeyShare, ServerResponse,
     TOTAL_USERS,
 };
 use rocket::serde::msgpack;
@@ -49,14 +50,14 @@ struct StateInit {
 
 struct StateSetup {
     name: String,
-    url: String,
+    client: WebClient,
     ck: ClientKey,
     user_id: usize,
 }
 
 struct StateGotNames {
     name: String,
-    url: String,
+    client: WebClient,
     ck: ClientKey,
     user_id: usize,
     names: Vec<String>,
@@ -64,7 +65,7 @@ struct StateGotNames {
 
 struct EncryptedInput {
     name: String,
-    url: String,
+    client: WebClient,
     ck: ClientKey,
     user_id: usize,
     names: Vec<String>,
@@ -75,7 +76,7 @@ struct EncryptedInput {
 
 struct StateCompletedRun {
     name: String,
-    url: String,
+    client: WebClient,
     ck: ClientKey,
     user_id: usize,
     names: Vec<String>,
@@ -84,7 +85,7 @@ struct StateCompletedRun {
 
 struct StateDownloadedOuput {
     name: String,
-    url: String,
+    client: WebClient,
     ck: ClientKey,
     user_id: usize,
     names: Vec<String>,
@@ -95,7 +96,7 @@ struct StateDownloadedOuput {
 
 struct StatePublishedShares {
     name: String,
-    url: String,
+    client: WebClient,
     ck: ClientKey,
     user_id: usize,
     names: Vec<String>,
@@ -109,6 +110,119 @@ struct StateDecrypted {
     fhe_out: Vec<FheUint8>,
     shares: DecryptionSharesMap,
     decrypted_output: Vec<u8>,
+}
+
+struct WebClient {
+    // The root URL
+    url: String,
+    client: Client,
+}
+
+impl WebClient {
+    fn new(url: &str) -> Self {
+        Self {
+            url: url.to_string(),
+            client: Client::new(),
+        }
+    }
+    fn path(&self, path: &str) -> String {
+        format!("{}/{}", self.url, path)
+    }
+
+    async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, Error> {
+        let result = self
+            .client
+            .get(self.path(path))
+            .send()
+            .await?
+            .json::<T>()
+            .await?;
+        Ok(result)
+    }
+    async fn post_nobody<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, Error> {
+        let result = self
+            .client
+            .post(self.path(path))
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(result)
+    }
+    async fn post<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        body: impl Into<reqwest::Body>,
+    ) -> Result<T, Error> {
+        let result = self
+            .client
+            .post(self.path(path))
+            .body(body)
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(result)
+    }
+    async fn post_msgpack<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        body: &impl Serialize,
+    ) -> Result<T, Error> {
+        let result = self
+            .client
+            .post(self.path(path))
+            .headers(HeaderMap::from_iter([(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/msgpack"),
+            )]))
+            .body(msgpack::to_compact_vec(body)?)
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(result)
+    }
+
+    async fn get_seed(&self) -> Result<Seed, Error> {
+        self.get("param").await
+    }
+
+    async fn register(&self, name: &str) -> Result<RegistrationOut, Error> {
+        self.post("register", name.to_string()).await
+    }
+    async fn get_names(&self) -> Result<Vec<RegisteredUser>, Error> {
+        self.get("users").await
+    }
+
+    async fn submit_cipher(&self, submission: &CipherSubmission) -> Result<ServerResponse, Error> {
+        self.post_msgpack("submit", submission).await
+    }
+
+    async fn trigger_fhe_run(&self) -> Result<ServerResponse, Error> {
+        self.post_nobody("run").await
+    }
+
+    async fn get_fhe_output(&self) -> Result<Vec<FheUint8>, Error> {
+        self.get("fhe_output").await
+    }
+
+    async fn submit_decryption_shares(
+        &self,
+        submission: &DecryptionShareSubmission<'_>,
+    ) -> Result<ServerResponse, Error> {
+        self.post_msgpack("submit_decryption_shares", submission)
+            .await
+    }
+
+    async fn get_decryption_share(
+        &self,
+        output_id: usize,
+        user_id: usize,
+    ) -> Result<DecryptionShare, Error> {
+        self.get(&format!("decryption_share/{output_id}/{user_id}"))
+            .await
+    }
 }
 
 #[tokio::main]
@@ -148,37 +262,35 @@ async fn main() {
     }
 }
 
-async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize), Error> {
-    let seed: [u8; 32] = reqwest::get(format!("{url}/param")).await?.json().await?;
+async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, WebClient), Error> {
+    let client = WebClient::new(url);
+    let seed = client.get_seed().await?;
     println!("Acquired seed {:?}", seed);
     println!("Run setup");
     setup(&seed);
     println!("Gen client key");
     let ck = gen_client_key();
-    let reg: RegistrationOut = Client::new()
-        .post(format!("{url}/register"))
-        .body(name.to_string())
-        .send()
-        .await?
-        .json()
-        .await?;
+    let reg = client.register(name).await?;
     println!(
         "Hi {}, you are registered with ID: {}",
         reg.name, reg.user_id
     );
-    Ok((ck, reg.user_id))
+    Ok((ck, reg.user_id, client))
 }
 
-async fn cmd_get_names(url: &String) -> Result<Vec<String>, Error> {
-    let users: Vec<RegisteredUser> = reqwest::get(format!("{url}/users")).await?.json().await?;
-    println!("Users {:?}", users);
-    let names = users.iter().map(|reg| reg.name.clone()).collect_vec();
+async fn cmd_get_names(client: &WebClient) -> Result<Vec<String>, Error> {
+    let users = client.get_names().await?;
+    for user in &users {
+        println!("User {:?}", user);
+    }
+
+    let names = users.iter().map(|reg| reg.name.to_string()).collect_vec();
     Ok(names)
 }
 
 async fn cmd_score_encrypt(
     args: &[&str],
-    url: &String,
+    client: &WebClient,
     user_id: &usize,
     names: &Vec<String>,
     ck: &ClientKey,
@@ -207,34 +319,16 @@ async fn cmd_score_encrypt(
 
     println!("Submit the cipher and the server key share");
     let submission = CipherSubmission::new(*user_id, cipher.clone(), sks.clone());
-    let response: ServerResponse = Client::new()
-        .post(format!("{url}/submit"))
-        .headers({
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/msgpack"),
-            );
-            headers
-        })
-        .body(msgpack::to_compact_vec(&submission).expect("works"))
-        .send()
-        .await?
-        .json()
-        .await?;
+    let response = client.submit_cipher(&submission).await?;
+    println!("{:?}", response);
 
     let scores = [0u8; 4];
     Ok((scores, cipher, sks))
 }
 
-async fn cmd_run(url: &String) -> Result<(), Error> {
+async fn cmd_run(client: &WebClient) -> Result<(), Error> {
     println!("Requesting FHE run ...");
-    let resp: ServerResponse = Client::new()
-        .post(format!("{url}/run"))
-        .send()
-        .await?
-        .json()
-        .await?;
+    let resp = client.trigger_fhe_run().await?;
     if resp.ok {
         println!("Server: {}", resp.msg);
         Ok(())
@@ -244,15 +338,13 @@ async fn cmd_run(url: &String) -> Result<(), Error> {
 }
 
 async fn cmd_download_output(
-    url: &String,
+    client: &WebClient,
     user_id: &usize,
     ck: &ClientKey,
 ) -> Result<(Vec<FheUint8>, HashMap<(usize, usize), Vec<u64>>), Error> {
     println!("Downloading fhe output");
-    let fhe_out: Vec<FheUint8> = reqwest::get(format!("{url}/fhe_output"))
-        .await?
-        .json()
-        .await?;
+    let fhe_out = client.get_fhe_output().await?;
+
     println!("Generating my decrypting shares");
     let mut shares = HashMap::new();
     let mut my_decryption_shares = Vec::new();
@@ -264,25 +356,12 @@ async fn cmd_download_output(
     let submission = DecryptionShareSubmission::new(*user_id, &my_decryption_shares);
 
     println!("Submitting my decrypting shares");
-    Client::new()
-        .post(format!("{url}/submit_decryption_shares"))
-        .headers({
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/msgpack"),
-            );
-            headers
-        })
-        .body(msgpack::to_compact_vec(&submission).expect("serialization works"))
-        .send()
-        .await?;
-
+    client.submit_decryption_shares(&submission).await?;
     Ok((fhe_out, shares))
 }
 
 async fn cmd_download_shares(
-    url: &String,
+    client: &WebClient,
     user_id: &usize,
     names: &Vec<String>,
     ck: &ClientKey,
@@ -293,11 +372,7 @@ async fn cmd_download_shares(
     for (output_id, user_id) in (0..3).cartesian_product(0..3) {
         if shares.get(&(output_id, user_id)).is_none() {
             println!("Acquiring user {user_id}'s decryption shares for output {output_id}");
-            let ds: DecryptionShare =
-                reqwest::get(format!("{url}/decryption_share/{output_id}/{user_id}"))
-                    .await?
-                    .json()
-                    .await?;
+            let ds = client.get_decryption_share(output_id, user_id).await?;
             shares.insert((output_id, user_id), ds);
         } else {
             println!(
@@ -339,9 +414,9 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
     if cmd == &"setup" {
         match state {
             State::Init(s) => match cmd_setup(&s.name, &s.url).await {
-                Ok((ck, user_id)) => Ok(State::Setup(StateSetup {
+                Ok((ck, user_id, client)) => Ok(State::Setup(StateSetup {
                     name: s.name,
-                    url: s.url,
+                    client,
                     ck,
                     user_id,
                 })),
@@ -351,10 +426,10 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
         }
     } else if cmd == &"getNames" {
         match state {
-            State::Setup(s) => match cmd_get_names(&s.url).await {
+            State::Setup(s) => match cmd_get_names(&s.client).await {
                 Ok(names) => Ok(State::GotNames(StateGotNames {
                     name: s.name,
-                    url: s.url,
+                    client: s.client,
                     ck: s.ck,
                     user_id: s.user_id,
                     names,
@@ -369,10 +444,10 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
         }
         match state {
             State::GotNames(s) => {
-                match cmd_score_encrypt(args, &s.url, &s.user_id, &s.names, &s.ck).await {
+                match cmd_score_encrypt(args, &s.client, &s.user_id, &s.names, &s.ck).await {
                     Ok((scores, cipher, sks)) => Ok(State::EncryptedInput(EncryptedInput {
                         name: s.name,
-                        url: s.url,
+                        client: s.client,
                         ck: s.ck,
                         user_id: s.user_id,
                         names: s.names,
@@ -387,10 +462,10 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
         }
     } else if cmd == &"run" {
         match state {
-            State::EncryptedInput(s) => match cmd_run(&s.url).await {
+            State::EncryptedInput(s) => match cmd_run(&s.client).await {
                 Ok(()) => Ok(State::CompletedRun(StateCompletedRun {
                     name: s.name,
-                    url: s.url,
+                    client: s.client,
                     ck: s.ck,
                     user_id: s.user_id,
                     names: s.names,
@@ -405,10 +480,11 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
         // - Generate my decryption key shares
         // - Upload my decryption key shares
         match state {
-            State::CompletedRun(s) => match cmd_download_output(&s.url, &s.user_id, &s.ck).await {
+            State::CompletedRun(s) => match cmd_download_output(&s.client, &s.user_id, &s.ck).await
+            {
                 Ok((fhe_out, shares)) => Ok(State::DownloadedOutput(StateDownloadedOuput {
                     name: s.name,
-                    url: s.url,
+                    client: s.client,
                     ck: s.ck,
                     user_id: s.user_id,
                     names: s.names,
@@ -425,7 +501,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
         // - Decrypt fhe output
         match state {
             State::DownloadedOutput(mut s) => match cmd_download_shares(
-                &s.url,
+                &s.client,
                 &s.user_id,
                 &s.names,
                 &s.ck,
