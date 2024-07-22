@@ -8,13 +8,12 @@ use crate::{Cipher, DecryptionShare, Seed, ServerKeyShare, UserId};
 use rand::{thread_rng, RngCore};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::format;
 
 use rocket::tokio::sync::Mutex;
+use rocket::State;
 use rocket::{get, launch, post, routes};
-use rocket::{Responder, State};
 
-use rocket::serde::json::{json, Json, Value};
+use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
 use rocket::serde::{Deserialize, Serialize};
 
