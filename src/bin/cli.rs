@@ -36,7 +36,7 @@ enum State {
     Setup(StateSetup),
     GotNames(StateGotNames),
     EncryptedInput(EncryptedInput),
-    WaitRun(StateWaitRun),
+    CompletedRun(StateCompletedRun),
     DownloadedOutput(StateDownloadedOuput),
     PublishedShares(StatePublishedShares),
     Decrypted(StateDecrypted),
@@ -73,7 +73,7 @@ struct EncryptedInput {
     sks: ServerKeyShare,
 }
 
-struct StateWaitRun {
+struct StateCompletedRun {
     name: String,
     url: String,
     ck: ClientKey,
@@ -227,6 +227,22 @@ async fn cmd_score_encrypt(
     Ok((scores, cipher, sks))
 }
 
+async fn cmd_run(url: &String) -> Result<(), Error> {
+    println!("Requesting FHE run ...");
+    let resp: ServerResponse = Client::new()
+        .post(format!("{url}/run"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    if resp.ok {
+        println!("Server: {}", resp.msg);
+        Ok(())
+    } else {
+        Err(anyhow!("Server: {}", resp.msg))
+    }
+}
+
 async fn cmd_download_output(
     url: &String,
     user_id: &usize,
@@ -322,14 +338,14 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
     let args = &terms[1..];
     if cmd == &"setup" {
         match state {
-            State::Init(StateInit { name, url }) => match cmd_setup(&name, &url).await {
+            State::Init(s) => match cmd_setup(&s.name, &s.url).await {
                 Ok((ck, user_id)) => Ok(State::Setup(StateSetup {
-                    name,
-                    url,
+                    name: s.name,
+                    url: s.url,
                     ck,
                     user_id,
                 })),
-                Err(err) => Err((err, State::Init(StateInit { name, url }))),
+                Err(err) => Err((err, State::Init(s))),
             },
             _ => Err((anyhow!("Expected state Init"), state)),
         }
@@ -369,12 +385,27 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             }
             _ => Err((anyhow!("Expected state GotNames"), state)),
         }
+    } else if cmd == &"run" {
+        match state {
+            State::EncryptedInput(s) => match cmd_run(&s.url).await {
+                Ok(()) => Ok(State::CompletedRun(StateCompletedRun {
+                    name: s.name,
+                    url: s.url,
+                    ck: s.ck,
+                    user_id: s.user_id,
+                    names: s.names,
+                    scores: s.scores,
+                })),
+                Err(err) => Err((err, State::EncryptedInput(s))),
+            },
+            _ => Err((anyhow!("Expected state GotNames"), state)),
+        }
     } else if cmd == &"downloadOutput" {
         // - Download fhe output
         // - Generate my decryption key shares
         // - Upload my decryption key shares
         match state {
-            State::WaitRun(s) => match cmd_download_output(&s.url, &s.user_id, &s.ck).await {
+            State::CompletedRun(s) => match cmd_download_output(&s.url, &s.user_id, &s.ck).await {
                 Ok((fhe_out, shares)) => Ok(State::DownloadedOutput(StateDownloadedOuput {
                     name: s.name,
                     url: s.url,
@@ -385,7 +416,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                     fhe_out,
                     shares,
                 })),
-                Err(err) => Err((err, State::WaitRun(s))),
+                Err(err) => Err((err, State::CompletedRun(s))),
             },
             _ => Err((anyhow!("Expected state EncryptedInput"), state)),
         }
