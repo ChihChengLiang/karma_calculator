@@ -1,4 +1,3 @@
-use itertools::{zip, Itertools};
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, ParameterSelector};
 
 use crate::circuit::{derive_server_key, evaluate_circuit};
@@ -8,8 +7,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use rocket::tokio::sync::Mutex;
-use rocket::State;
-use rocket::{get, launch, post, routes};
+use rocket::{get, post, routes};
+use rocket::{Build, Rocket, State};
 
 use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
@@ -347,8 +346,7 @@ pub fn setup(seed: &Seed) {
     set_common_reference_seed(*seed);
 }
 
-#[launch]
-pub fn rocket() -> _ {
+pub fn rocket() -> Rocket<Build> {
     let mut seed = [0u8; 32];
     thread_rng().fill_bytes(&mut seed);
 
