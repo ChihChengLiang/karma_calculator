@@ -1,20 +1,18 @@
 ## Intro
 
-## Run
+## Getting started
+
+
+Run the server
+```
+cargo run -r --bin server
+```
+
+Run clients in different terminals
 
 ```
-cargo run --release
+cargo run -r --bin cli alice http://0.0.0.0:5566
+cargo run -r --bin cli bob http://0.0.0.0:5566
+cargo run -r --bin cli carlos http://0.0.0.0:5566
 ```
 
-
-
-1. Server set params
-2. Client get params
-3. Client register names and get user id
-4. Client query names
-5. Client votes. Submit server keys and ciphers
-6. Admin execute run
-7. Admin query results
-
-
-Decrypt result
