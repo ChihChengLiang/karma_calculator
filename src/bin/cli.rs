@@ -394,7 +394,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             },
             _ => Err((anyhow!("Expected state DownloadedOuput"), state)),
         }
-    } else if cmd.starts_with("#") {
+    } else if cmd.starts_with('#') {
         Ok(state)
     } else {
         Err((anyhow!("Unknown command {}", cmd), state))
