@@ -9,7 +9,6 @@ use reqwest::{
     Client,
 };
 use rocket::serde::msgpack;
-use rocket::{self, Build, Rocket};
 use serde::{Deserialize, Serialize};
 
 pub enum WebClient {
@@ -26,12 +25,6 @@ impl WebClient {
             url: url.to_string(),
             client: Client::new(),
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn new_test(rocket: Rocket<Build>) -> Result<Self, Error> {
-        let client = rocket::local::asynchronous::Client::tracked(rocket).await?;
-        Ok(Self::Test(client))
     }
 
     fn path(&self, path: &str) -> String {

@@ -3,8 +3,12 @@ use phantom_zone::{gen_client_key, gen_server_key_share, Encryptor, MultiPartyDe
 use std::collections::HashMap;
 
 use crate::*;
+use anyhow::Error;
 use phantom_zone::set_common_reference_seed;
-use rocket::serde::{Deserialize, Serialize};
+use rocket::{
+    serde::{Deserialize, Serialize},
+    Build, Rocket,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 // We're not sending the User struct in rockets. This macro is here just for Serde reasons
@@ -134,6 +138,13 @@ impl User {
                 ck.aggregate_decryption_shares(output, &decryption_shares)
             })
             .collect_vec()
+    }
+}
+
+impl WebClient {
+    pub(crate) async fn new_test(rocket: Rocket<Build>) -> Result<Self, Error> {
+        let client = rocket::local::asynchronous::Client::tracked(rocket).await?;
+        Ok(Self::Test(client))
     }
 }
 
