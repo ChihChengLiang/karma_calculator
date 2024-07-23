@@ -4,10 +4,7 @@ use std::collections::HashMap;
 
 use crate::*;
 use phantom_zone::set_common_reference_seed;
-use rocket::{
-    local::blocking::Client,
-    serde::{Deserialize, Serialize},
-};
+use rocket::serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 // We're not sending the User struct in rockets. This macro is here just for Serde reasons
@@ -140,9 +137,9 @@ impl User {
     }
 }
 
-#[test]
-fn full_flow() {
-    let client = Client::tracked(super::rocket()).unwrap();
+#[rocket::async_test]
+async fn full_flow() {
+    let client = WebClient::new_test(rocket()).await.unwrap();
 
     let mut users = vec![User::new("Barry"), User::new("Justin"), User::new("Brian")];
 
@@ -150,11 +147,7 @@ fn full_flow() {
 
     // Acquire seeds
     for user in users.iter_mut() {
-        let seed = client
-            .get("/param")
-            .dispatch()
-            .into_json::<Seed>()
-            .expect("exists");
+        let seed = client.get_seed().await.unwrap();
         user.assign_seed(seed);
         user.gen_client_key();
     }
@@ -163,20 +156,11 @@ fn full_flow() {
 
     // Register
     for user in users.iter_mut() {
-        let out = client
-            .post("/register")
-            .body(user.name.to_string())
-            .dispatch()
-            .into_json::<RegistrationOut>()
-            .expect("exists");
+        let out = client.register(&user.name).await.unwrap();
         user.set_id(out.user_id);
     }
 
-    let users_record = client
-        .get("/users")
-        .dispatch()
-        .into_json::<Vec<RegisteredUser>>()
-        .expect("exists");
+    let users_record = client.get_names().await.unwrap();
     println!("users records {:?}", users_record);
 
     // Assign scores
@@ -201,20 +185,16 @@ fn full_flow() {
             user.server_key.to_owned().unwrap(),
         );
         let now = std::time::Instant::now();
-        client.post("/submit").msgpack(&submission).dispatch();
+        client.submit_cipher(&submission).await.unwrap();
         println!("It takes {:#?} to submit server key", now.elapsed());
     }
 
     // Admin runs the FHE computation
-    client.post("/run").dispatch();
+    client.trigger_fhe_run().await.unwrap();
 
     // Users get FHE output, generate decryption shares, and submit decryption shares
     for user in users.iter_mut() {
-        let fhe_output = client
-            .get("/fhe_output")
-            .dispatch()
-            .into_json::<Vec<FheUint8>>()
-            .expect("exists");
+        let fhe_output = client.get_fhe_output().await.unwrap();
 
         user.set_fhe_out(fhe_output);
         user.gen_decryption_shares();
@@ -222,20 +202,16 @@ fn full_flow() {
         let submission =
             DecryptionShareSubmission::new(user.id.expect("exist now"), decryption_shares);
 
-        client
-            .post("/submit_decryption_shares")
-            .msgpack(&submission)
-            .dispatch();
+        client.submit_decryption_shares(&submission).await.unwrap();
     }
     // Users acquire all decryption shares they want
     for user in users.iter_mut() {
         for (output_id, user_id) in (0..3).cartesian_product(0..TOTAL_USERS) {
             if user.decryption_shares.get(&(output_id, user_id)).is_none() {
                 let ds = client
-                    .get(format!("/decryption_share/{output_id}/{user_id}"))
-                    .dispatch()
-                    .into_json::<DecryptionShare>()
-                    .expect("exists");
+                    .get_decryption_share(output_id, user_id)
+                    .await
+                    .unwrap();
                 user.decryption_shares.insert((output_id, user_id), ds);
             }
         }
