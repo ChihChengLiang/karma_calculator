@@ -133,10 +133,13 @@ async fn main() {
 async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, WebClient), Error> {
     let client = WebClient::new(url);
     let seed = client.get_seed().await?;
-    println!("Acquired seed {}", hex::encode(seed));
-    println!("Run setup");
+    println!(
+        "Acquired seed for commen reference string (CRS) 0x{}",
+        hex::encode(seed)
+    );
+    println!("Setup my CRS");
     setup(&seed);
-    println!("Gen client key");
+    println!("Generate my client key");
     let ck = gen_client_key();
     let reg = client.register(name).await?;
     println!(
