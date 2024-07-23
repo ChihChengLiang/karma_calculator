@@ -1,6 +1,7 @@
 mod client;
 mod server;
 mod types;
+mod circuit;
 
 pub use client::WebClient;
 pub use server::{
