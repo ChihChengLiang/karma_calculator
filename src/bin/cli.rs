@@ -32,7 +32,6 @@ enum State {
     EncryptedInput(EncryptedInput),
     CompletedRun(StateCompletedRun),
     DownloadedOutput(StateDownloadedOuput),
-    PublishedShares(StatePublishedShares),
     Decrypted(StateDecrypted),
 }
 
@@ -77,17 +76,6 @@ struct StateCompletedRun {
 }
 
 struct StateDownloadedOuput {
-    name: String,
-    client: WebClient,
-    ck: ClientKey,
-    user_id: usize,
-    names: Vec<String>,
-    scores: [u8; 4],
-    fhe_out: Vec<FheUint8>,
-    shares: DecryptionSharesMap,
-}
-
-struct StatePublishedShares {
     name: String,
     client: WebClient,
     ck: ClientKey,
@@ -145,7 +133,7 @@ async fn main() {
 async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, WebClient), Error> {
     let client = WebClient::new(url);
     let seed = client.get_seed().await?;
-    println!("Acquired seed {:?}", seed);
+    println!("Acquired seed {}", hex::encode(seed));
     println!("Run setup");
     setup(&seed);
     println!("Gen client key");
@@ -160,8 +148,11 @@ async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, Web
 
 async fn cmd_get_names(client: &WebClient) -> Result<Vec<String>, Error> {
     let users = client.get_names().await?;
-    for user in &users {
-        println!("User {:?}", user);
+    for (user_id, user) in users.iter().enumerate() {
+        println!(
+            "User #{} | {}  status  {:#?}",
+            user_id, user.name, user.registration
+        );
     }
 
     let names = users.iter().map(|reg| reg.name.to_string()).collect_vec();

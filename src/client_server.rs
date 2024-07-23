@@ -128,7 +128,7 @@ impl UserStorage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-enum Registration {
+pub enum Registration {
     IDAcquired,
     CipherSubmitted,
     DecryptionShareSubmitted,
@@ -138,7 +138,7 @@ enum Registration {
 #[serde(crate = "rocket::serde")]
 pub struct RegisteredUser {
     pub name: String,
-    registration: Registration,
+    pub registration: Registration,
 }
 
 // We're going to store all of the messages here. No need for a DB.
