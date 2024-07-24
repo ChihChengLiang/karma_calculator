@@ -6,7 +6,6 @@ use phantom_zone::{
 use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
 use rocket::State;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use tabled::Tabled;
 
@@ -80,7 +79,7 @@ impl ServerResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub(crate) enum ServerStatus {
+pub enum ServerStatus {
     Waiting,
     RunningFhe,
     CompletedFhe,
@@ -176,34 +175,16 @@ pub const TOTAL_USERS: usize = 3;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct CipherSubmission {
-    pub user_id: UserId,
-    pub cipher_text: Cipher,
-    pub sks: ServerKeyShare,
-}
-
-impl CipherSubmission {
-    pub fn new(user_id: usize, cipher_text: Cipher, sks: ServerKeyShare) -> Self {
-        Self {
-            user_id,
-            cipher_text,
-            sks,
-        }
-    }
+pub(crate) struct CipherSubmission {
+    pub(crate) user_id: UserId,
+    pub(crate) cipher_text: Cipher,
+    pub(crate) sks: ServerKeyShare,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct DecryptionShareSubmission<'r> {
-    pub user_id: UserId,
+pub(crate) struct DecryptionShareSubmission {
+    pub(crate) user_id: UserId,
     /// The user sends decryption share Vec<u64> for each FheUint8.
-    pub decryption_shares: Cow<'r, Vec<DecryptionShare>>,
-}
-impl<'r> DecryptionShareSubmission<'r> {
-    pub fn new(user_id: usize, decryption_shares: &'r Vec<DecryptionShare>) -> Self {
-        Self {
-            user_id,
-            decryption_shares: Cow::Borrowed(decryption_shares),
-        }
-    }
+    pub(crate) decryption_shares: Vec<DecryptionShare>,
 }

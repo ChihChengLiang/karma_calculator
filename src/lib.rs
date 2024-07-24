@@ -7,9 +7,8 @@ pub use client::WebClient;
 pub use server::{rocket, setup};
 
 pub use types::{
-    Cipher, CipherSubmission, ClientKey, DecryptionShare, DecryptionShareSubmission,
-    DecryptionSharesMap, FheUint8, MutexServerStatus, RegisteredUser, Seed, ServerKeyShare,
-    ServerResponse, UserId, TOTAL_USERS,
+    Cipher, ClientKey, DecryptionShare, DecryptionSharesMap, FheUint8, MutexServerStatus,
+    RegisteredUser, Seed, ServerKeyShare, ServerResponse, UserId, TOTAL_USERS,
 };
 
 #[cfg(test)]

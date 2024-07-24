@@ -124,7 +124,7 @@ async fn get_fhe_output(
 /// The user submits the ciphertext
 #[post("/submit_decryption_shares", data = "<submission>", format = "msgpack")]
 async fn submit_decryption_shares(
-    submission: MsgPack<DecryptionShareSubmission<'_>>,
+    submission: MsgPack<DecryptionShareSubmission>,
     ss: &State<MutexServerStorage>,
     users: Users<'_>,
 ) -> Json<ServerResponse> {
