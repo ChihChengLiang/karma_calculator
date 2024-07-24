@@ -167,8 +167,8 @@ async fn full_flow() {
 
     // Register
     for user in users.iter_mut() {
-        let user = client.register(&user.name).await.unwrap();
-        user.set_id(user.user_id);
+        let reg = client.register(&user.name).await.unwrap();
+        user.set_id(reg.id);
     }
 
     let users_record = client.get_names().await.unwrap();
@@ -190,13 +190,15 @@ async fn full_flow() {
 
         let user_id = user.id.unwrap();
 
-        let submission = CipherSubmission::new(
-            user_id,
-            user.cipher.to_owned().unwrap(),
-            user.server_key.to_owned().unwrap(),
-        );
         let now = std::time::Instant::now();
-        client.submit_cipher(&submission).await.unwrap();
+        client
+            .submit_cipher(
+                user_id,
+                &user.cipher.as_ref().unwrap(),
+                &user.server_key.as_ref().unwrap(),
+            )
+            .await
+            .unwrap();
         println!("It takes {:#?} to submit server key", now.elapsed());
     }
 
@@ -209,11 +211,11 @@ async fn full_flow() {
 
         user.set_fhe_out(fhe_output);
         user.gen_decryption_shares();
-        let decryption_shares = &user.get_my_shares();
-        let submission =
-            DecryptionShareSubmission::new(user.id.expect("exist now"), decryption_shares);
 
-        client.submit_decryption_shares(&submission).await.unwrap();
+        client
+            .submit_decryption_shares(user.id.expect("exist now"), &user.get_my_shares())
+            .await
+            .unwrap();
     }
     // Users acquire all decryption shares they want
     for user in users.iter_mut() {

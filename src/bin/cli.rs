@@ -4,9 +4,7 @@ use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
-use karma_calculator::{
-    setup, CipherSubmission, DecryptionShareSubmission, DecryptionSharesMap, WebClient, TOTAL_USERS,
-};
+use karma_calculator::{setup, DecryptionSharesMap, WebClient, TOTAL_USERS};
 
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -236,8 +234,7 @@ async fn cmd_score_encrypt(
     let sks = gen_server_key_share(*user_id, TOTAL_USERS, ck);
 
     println!("Submit the cipher and the server key share");
-    let submission = CipherSubmission::new(*user_id, cipher.clone(), sks.clone());
-    client.submit_cipher(&submission).await?;
+    client.submit_cipher(*user_id, &cipher, &sks).await?;
     Ok(scores)
 }
 
@@ -268,10 +265,11 @@ async fn cmd_download_output(
         my_decryption_shares.push(share.clone());
         shares.insert((out_id, *user_id), share);
     }
-    let submission = DecryptionShareSubmission::new(*user_id, &my_decryption_shares);
 
     println!("Submitting my decrypting shares");
-    client.submit_decryption_shares(&submission).await?;
+    client
+        .submit_decryption_shares(*user_id, &my_decryption_shares)
+        .await?;
     Ok((fhe_out, shares))
 }
 
