@@ -24,6 +24,7 @@ pub fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> Fh
     &(&(a + b) + c) - total
 }
 
+/// Circuit
 pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) -> FheUint8 {
     let sum: FheUint8 = receving_karmas
         .iter()
@@ -33,6 +34,7 @@ pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) ->
     &sum - given_out
 }
 
+/// Server work
 /// Warning: global variable change
 pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
     // HACK to make sure that paremeters are set in each thread.
@@ -45,6 +47,7 @@ pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
     server_key.set_server_key();
 }
 
+/// Server work
 pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUint8> {
     // Unseed ciphers
     let ciphers = users
