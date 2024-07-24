@@ -6,6 +6,20 @@ use phantom_zone::{
 
 use crate::{Cipher, FheUint8, RegisteredUser, ServerKeyShare};
 
+pub(crate) struct FHEConfig {
+    num_users: usize,
+    param: ParameterSelector,
+}
+
+impl FHEConfig {
+    pub fn new(num_users: usize) -> Self {
+        Self {
+            num_users,
+            param: ParameterSelector::NonInteractiveLTE4Party,
+        }
+    }
+}
+
 pub fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUint8 {
     &(&(a + b) + c) - total
 }
