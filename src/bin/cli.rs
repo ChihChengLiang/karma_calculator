@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Error};
 use std::{collections::HashMap, iter::zip};
+use tabled::{settings::Style, Table};
 
 use clap::command;
 use itertools::Itertools;
@@ -151,14 +152,10 @@ async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, Web
 
 async fn cmd_get_names(client: &WebClient) -> Result<Vec<String>, Error> {
     let users = client.get_names().await?;
-    for (user_id, user) in users.iter().enumerate() {
-        println!(
-            "User #{} | {}  status  {:#?}",
-            user_id, user.name, user.registration
-        );
-    }
-
     let names = users.iter().map(|reg| reg.name.to_string()).collect_vec();
+    let users = Table::new(users).with(Style::ascii_rounded()).to_string();
+    println!("{}", users);
+
     Ok(names)
 }
 

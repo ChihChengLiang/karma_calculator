@@ -1,4 +1,5 @@
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, ParameterSelector};
+use tabled::Tabled;
 
 use crate::circuit::{derive_server_key, evaluate_circuit};
 use crate::{Cipher, DecryptionShare, Seed, ServerKeyShare, UserId};
@@ -125,17 +126,23 @@ impl UserStorage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub enum Registration {
+pub enum UserStatus {
     IDAcquired,
     CipherSubmitted,
     DecryptionShareSubmitted,
 }
+impl std::fmt::Display for UserStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Tabled)]
 #[serde(crate = "rocket::serde")]
 pub struct RegisteredUser {
+    id: usize,
     pub name: String,
-    pub registration: Registration,
+    status: UserStatus,
 }
 
 // We're going to store all of the messages here. No need for a DB.
@@ -201,8 +208,9 @@ async fn register(name: &str, users: Users<'_>) -> Json<RegistrationOut> {
     let mut users = users.lock().await;
     let user_id = users.len();
     let user = RegisteredUser {
+        id: user_id,
         name: name.to_string(),
-        registration: Registration::IDAcquired,
+        status: UserStatus::IDAcquired,
     };
     users.push(user);
     Json(RegistrationOut {
@@ -233,7 +241,7 @@ async fn submit(
     let mut ss = ss.lock().await;
     ss.users[user_id] = UserStorage::CipherSks(submission.0.cipher_text, submission.0.sks);
 
-    users[user_id].registration = Registration::CipherSubmitted;
+    users[user_id].status = UserStatus::CipherSubmitted;
     Json(ServerResponse::ok_user(user_id))
 }
 
@@ -318,7 +326,7 @@ async fn submit_decryption_shares(
 
     let mut users = users.lock().await;
 
-    users[user_id].registration = Registration::DecryptionShareSubmitted;
+    users[user_id].status = UserStatus::DecryptionShareSubmitted;
     Json(ServerResponse::ok_user(user_id))
 }
 
