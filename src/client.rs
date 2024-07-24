@@ -1,6 +1,6 @@
 use crate::{
-    CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, RegisteredUser,
-    RegistrationOut, Seed, ServerResponse,
+    CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, RegisteredUser, Seed,
+    ServerResponse,
 };
 use anyhow::{anyhow, Error};
 use reqwest::{
@@ -136,7 +136,7 @@ impl WebClient {
         self.get("/param").await
     }
 
-    pub async fn register(&self, name: &str) -> Result<RegistrationOut, Error> {
+    pub async fn register(&self, name: &str) -> Result<RegisteredUser, Error> {
         self.post("/register", name.as_bytes().to_vec()).await
     }
     pub async fn get_names(&self) -> Result<Vec<RegisteredUser>, Error> {

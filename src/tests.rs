@@ -167,8 +167,8 @@ async fn full_flow() {
 
     // Register
     for user in users.iter_mut() {
-        let out = client.register(&user.name).await.unwrap();
-        user.set_id(out.user_id);
+        let user = client.register(&user.name).await.unwrap();
+        user.set_id(user.user_id);
     }
 
     let users_record = client.get_names().await.unwrap();

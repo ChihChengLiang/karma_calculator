@@ -160,12 +160,9 @@ async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, Web
     setup(&seed);
     println!("Generate my client key");
     let ck = gen_client_key();
-    let reg = client.register(name).await?;
-    println!(
-        "Hi {}, you are registered with ID: {}",
-        reg.name, reg.user_id
-    );
-    Ok((ck, reg.user_id, client))
+    let user = client.register(name).await?;
+    println!("Hi {}, you are registered with ID: {}", user.name, user.id);
+    Ok((ck, user.id, client))
 }
 
 async fn cmd_get_names(client: &WebClient) -> Result<Vec<String>, Error> {
