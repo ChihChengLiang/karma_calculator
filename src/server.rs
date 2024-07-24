@@ -1,193 +1,19 @@
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, ParameterSelector};
-use tabled::Tabled;
 
 use crate::circuit::{derive_server_key, evaluate_circuit};
-use crate::{Cipher, DecryptionShare, Seed, ServerKeyShare, UserId};
+use crate::types::{
+    CipherSubmission, DecryptionShareSubmission, MutexServerStatus, MutexServerStorage,
+    RegisteredUser, ServerResponse, ServerStatus, ServerStorage, UserList, UserStatus, UserStorage,
+    Users,
+};
+use crate::{DecryptionShare, Seed, UserId, TOTAL_USERS};
 use rand::{thread_rng, RngCore};
-use std::borrow::Cow;
-use std::collections::HashMap;
 
-use rocket::tokio::sync::Mutex;
 use rocket::{get, post, routes};
 use rocket::{Build, Rocket, State};
 
 use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
-use rocket::serde::{Deserialize, Serialize};
-
-type MutexServerStatus = Mutex<ServerStatus>;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct ServerResponse {
-    pub ok: bool,
-    pub msg: String,
-}
-
-impl ServerResponse {
-    fn ok(msg: &str) -> Self {
-        Self {
-            ok: true,
-            msg: msg.to_string(),
-        }
-    }
-    fn err(msg: &str) -> Self {
-        Self {
-            ok: false,
-            msg: msg.to_string(),
-        }
-    }
-    fn ok_user(user_id: UserId) -> Self {
-        Self::ok(&format!("{user_id}"))
-    }
-
-    fn err_unregistered_user(user_id: UserId) -> Self {
-        Self::err(&format!("User {user_id} hasn't registered yet"))
-    }
-
-    fn err_unregistered_users(user_len: usize) -> Self {
-        Self::err(&format!(
-            "Some users haven't registered yet. Want {TOTAL_USERS}  Got {user_len}"
-        ))
-    }
-    fn err_run_in_progress() -> Self {
-        Self::err("Fhe computation already running")
-    }
-
-    fn ok_run_already_end() -> Self {
-        Self::ok("Fhe computation completed")
-    }
-    fn err_missing_submission(user_id: UserId) -> Self {
-        Self::err(&format!("can't find cipher submission from user {user_id}"))
-    }
-    fn err_output_not_ready() -> Self {
-        Self::err("FHE output not ready yet")
-    }
-
-    fn err_decryption_share_not_found(output_id: usize, user_id: UserId) -> Self {
-        Self::err(&format!(
-            "Decryption share of {output_id} from user {user_id} not found"
-        ))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-enum ServerStatus {
-    Waiting,
-    RunningFhe,
-    CompletedFhe,
-}
-
-type MutexServerStorage = Mutex<ServerStorage>;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-struct ServerStorage {
-    seed: Seed,
-    users: Vec<UserStorage>,
-    fhe_outputs: Vec<FheUint8>,
-}
-
-impl ServerStorage {
-    fn new(seed: Seed) -> Self {
-        Self {
-            seed,
-            users: vec![UserStorage::Empty, UserStorage::Empty, UserStorage::Empty],
-            fhe_outputs: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(crate = "rocket::serde")]
-enum UserStorage {
-    #[default]
-    Empty,
-    CipherSks(Cipher, ServerKeyShare),
-    DecryptionShare(Option<Vec<DecryptionShare>>),
-}
-
-impl UserStorage {
-    fn get_cipher_sks(&self) -> Option<(&Cipher, &ServerKeyShare)> {
-        match self {
-            Self::CipherSks(cipher, sks) => Some((cipher, sks)),
-            _ => None,
-        }
-    }
-
-    fn get_mut_decryption_shares(&mut self) -> Option<&mut Option<Vec<DecryptionShare>>> {
-        match self {
-            Self::DecryptionShare(ds) => Some(ds),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub enum UserStatus {
-    IDAcquired,
-    CipherSubmitted,
-    DecryptionShareSubmitted,
-}
-impl std::fmt::Display for UserStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Tabled)]
-#[serde(crate = "rocket::serde")]
-pub struct RegisteredUser {
-    id: usize,
-    pub name: String,
-    status: UserStatus,
-}
-
-// We're going to store all of the messages here. No need for a DB.
-type UserList = Mutex<Vec<RegisteredUser>>;
-type Users<'r> = &'r State<UserList>;
-
-/// FheUint8 index -> user_id -> decryption share
-pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
-
-// TODO: how should the user get this value before everyone registered?
-pub const TOTAL_USERS: usize = 3;
-
-#[derive(Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct CipherSubmission {
-    user_id: UserId,
-    cipher_text: Cipher,
-    sks: ServerKeyShare,
-}
-
-impl CipherSubmission {
-    pub fn new(user_id: usize, cipher_text: Cipher, sks: ServerKeyShare) -> Self {
-        Self {
-            user_id,
-            cipher_text,
-            sks,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct DecryptionShareSubmission<'r> {
-    user_id: UserId,
-    /// The user sends decryption share Vec<u64> for each FheUint8.
-    decryption_shares: Cow<'r, Vec<DecryptionShare>>,
-}
-impl<'r> DecryptionShareSubmission<'r> {
-    pub fn new(user_id: usize, decryption_shares: &'r Vec<DecryptionShare>) -> Self {
-        Self {
-            user_id,
-            decryption_shares: Cow::Borrowed(decryption_shares),
-        }
-    }
-}
 
 #[get("/param")]
 async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
@@ -195,28 +21,14 @@ async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
     Json(ss.seed)
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct RegistrationOut {
-    pub name: String,
-    pub user_id: usize,
-}
-
 /// A user registers a name and get an ID
 #[post("/register", data = "<name>")]
-async fn register(name: &str, users: Users<'_>) -> Json<RegistrationOut> {
+async fn register(name: &str, users: Users<'_>) -> Json<RegisteredUser> {
     let mut users = users.lock().await;
     let user_id = users.len();
-    let user = RegisteredUser {
-        id: user_id,
-        name: name.to_string(),
-        status: UserStatus::IDAcquired,
-    };
-    users.push(user);
-    Json(RegistrationOut {
-        name: name.to_string(),
-        user_id,
-    })
+    let user = RegisteredUser::new(user_id, name);
+    users.push(user.clone());
+    Json(user)
 }
 
 #[get("/users")]
