@@ -7,14 +7,14 @@ use phantom_zone::{
 use crate::{Cipher, FheUint8, RegisteredUser, ServerKeyShare};
 
 pub(crate) struct FHEConfig {
-    num_users: usize,
+    max_users: usize,
     param: ParameterSelector,
 }
 
 impl FHEConfig {
-    pub fn new(num_users: usize) -> Self {
+    pub fn new(max_users: usize) -> Self {
         Self {
-            num_users,
+            max_users,
             param: ParameterSelector::NonInteractiveLTE4Party,
         }
     }
@@ -22,6 +22,15 @@ impl FHEConfig {
 
 pub fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUint8 {
     &(&(a + b) + c) - total
+}
+
+pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) -> FheUint8 {
+    let sum: FheUint8 = receving_karmas
+        .iter()
+        .cloned()
+        .reduce(|a, b| &a + &b)
+        .expect("At least one input is received");
+    &sum - given_out
 }
 
 /// Warning: global variable change
