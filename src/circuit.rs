@@ -20,7 +20,7 @@ pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) ->
 /// Warning: global variable change
 pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
     // HACK to make sure that paremeters are set in each thread.
-    set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
+    set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
     let server_key = time!(
         || aggregate_server_key_shares(server_key_shares),
         "Aggregate server key shares"

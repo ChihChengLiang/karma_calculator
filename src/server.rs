@@ -198,7 +198,7 @@ async fn get_decryption_share(
 }
 
 pub fn setup(seed: &Seed) {
-    set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
+    set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
     set_common_reference_seed(*seed);
 }
 
