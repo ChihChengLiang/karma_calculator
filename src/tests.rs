@@ -67,7 +67,11 @@ impl User {
         self
     }
     fn assign_scores(&mut self, scores: &[u8]) -> &mut Self {
-        self.scores = Some(scores.to_vec());
+        let mut scores = scores.to_vec();
+        let total: u8 = scores.iter().sum();
+        scores.push(total);
+
+        self.scores = Some(scores);
         self
     }
 
@@ -107,8 +111,9 @@ impl User {
     }
 
     fn get_my_shares(&self) -> Vec<DecryptionShare> {
+        let total_users = self.total_users.expect("exist");
         let my_id = self.id.expect("exists");
-        (0..3)
+        (0..total_users)
             .map(|output_id| {
                 self.decryption_shares
                     .get(&(output_id, my_id))
@@ -148,12 +153,12 @@ impl WebClient {
     }
 }
 
-#[rocket::async_test]
-async fn full_flow() {
+async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
     let client = WebClient::new_test(rocket()).await.unwrap();
 
-    let mut users = vec![User::new("Barry"), User::new("Justin"), User::new("Brian")];
-    let total_users = users.len();
+    let mut users = (0..total_users)
+        .map(|i| User::new(&format!("User {i}")))
+        .collect_vec();
 
     println!("acquire seeds");
 
@@ -172,19 +177,18 @@ async fn full_flow() {
         user.set_id(reg.id);
     }
     // Conclude the registration
-    let dashboard = client.conclude_registration().await.unwrap();
+    client.conclude_registration().await.unwrap();
 
     for user in users.iter_mut() {
+        let dashboard = client.get_dashboard().await.unwrap();
         user.set_total_users(dashboard.users.len());
     }
 
-    let dashboard = client.get_dashboard().await.unwrap();
-    println!("users records {:?}", dashboard.users);
-
     // Assign scores
-    users[0].assign_scores(&[0, 2, 4, 6]);
-    users[1].assign_scores(&[1, 0, 1, 2]);
-    users[2].assign_scores(&[1, 1, 0, 2]);
+    for user in users.iter_mut() {
+        let scores: Vec<u8> = (0u8..total_users.try_into().unwrap()).collect_vec();
+        user.assign_scores(&scores);
+    }
 
     for user in users.iter_mut() {
         println!("{} gen cipher", user.name);
@@ -242,4 +246,12 @@ async fn full_flow() {
         let decrypted_outs = user.decrypt_everything();
         println!("{} sees {:?}", user.name, decrypted_outs);
     }
+    Ok(())
+}
+
+#[rocket::async_test]
+async fn full_flow() {
+    run_flow_with_n_users(2).await.unwrap();
+    run_flow_with_n_users(3).await.unwrap();
+    run_flow_with_n_users(4).await.unwrap();
 }

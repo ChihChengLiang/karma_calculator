@@ -4,25 +4,7 @@ use phantom_zone::{
     SampleExtractor,
 };
 
-use crate::{Cipher, FheUint8, RegisteredUser, ServerKeyShare};
-
-pub(crate) struct FHEConfig {
-    max_users: usize,
-    param: ParameterSelector,
-}
-
-impl FHEConfig {
-    pub fn new(max_users: usize) -> Self {
-        Self {
-            max_users,
-            param: ParameterSelector::NonInteractiveLTE4Party,
-        }
-    }
-}
-
-pub fn sum_fhe(a: &FheUint8, b: &FheUint8, c: &FheUint8, total: &FheUint8) -> FheUint8 {
-    &(&(a + b) + c) - total
-}
+use crate::{time, Cipher, FheUint8, RegisteredUser, ServerKeyShare};
 
 /// Circuit
 pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) -> FheUint8 {
@@ -39,10 +21,10 @@ pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) ->
 pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
     // HACK to make sure that paremeters are set in each thread.
     set_parameter_set(ParameterSelector::NonInteractiveLTE4Party);
-    println!("aggregate server key shares");
-    let now = std::time::Instant::now();
-    let server_key = aggregate_server_key_shares(server_key_shares);
-    println!("server key aggregation time: {:?}", now.elapsed());
+    let server_key = time!(
+        || aggregate_server_key_shares(server_key_shares),
+        "Aggregate server key shares"
+    );
     println!("set server key");
     server_key.set_server_key();
 }
@@ -55,6 +37,8 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
         .map(|u| u.0.unseed::<Vec<Vec<u64>>>())
         .collect_vec();
 
+    let total_users = users.len();
+
     let mut outs = vec![];
     for (my_id, (_, me)) in users.iter().enumerate() {
         println!("Compute user {}'s karma", me.name);
@@ -64,16 +48,9 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
             .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
             .collect_vec();
 
-        let total = ciphers[my_id].key_switch(my_id).extract_at(3);
+        let total = ciphers[my_id].key_switch(my_id).extract_at(total_users);
 
-        let now = std::time::Instant::now();
-        let ct_out = sum_fhe(
-            &my_scores_from_others[0],
-            &my_scores_from_others[1],
-            &my_scores_from_others[2],
-            &total,
-        );
-        println!("sum_fhe evaluation time: {:?}", now.elapsed());
+        let ct_out = time!(|| sum_fhe_dyn(&my_scores_from_others, &total), "FHE Sum");
         outs.push(ct_out)
     }
     outs
