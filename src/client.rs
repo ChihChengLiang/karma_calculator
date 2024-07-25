@@ -116,6 +116,10 @@ impl WebClient {
         self.get("/users").await
     }
 
+    pub async fn conclude_registration(&self) -> Result<Vec<RegisteredUser>, Error> {
+        self.post_nobody("/conclude_registration").await
+    }
+
     pub async fn submit_cipher(
         &self,
         user_id: UserId,

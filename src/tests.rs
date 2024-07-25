@@ -170,6 +170,8 @@ async fn full_flow() {
         let reg = client.register(&user.name).await.unwrap();
         user.set_id(reg.id);
     }
+    // Conclude the registration
+    client.conclude_registration().await.unwrap();
 
     let users_record = client.get_names().await.unwrap();
     println!("users records {:?}", users_record);
