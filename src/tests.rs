@@ -191,17 +191,18 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
     }
 
     for user in users.iter_mut() {
-        println!("{} gen cipher", user.name);
+        println!("{} Gen cipher", user.name);
         user.gen_cipher();
-        println!("{} gen key share", user.name);
-        let now = std::time::Instant::now();
-        user.gen_server_key_share();
-        println!("It takes {:#?} to gen server key", now.elapsed());
+        time!(
+            || {
+                user.gen_server_key_share();
+            },
+            format!("{} Gen server key share", user.name)
+        );
         println!("{} submit key and cipher", user.name);
 
         let user_id = user.id.unwrap();
-
-        let now = std::time::Instant::now();
+        println!("Submit cipher and server key");
         client
             .submit_cipher(
                 user_id,
@@ -210,7 +211,6 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
             )
             .await
             .unwrap();
-        println!("It takes {:#?} to submit server key", now.elapsed());
     }
 
     // Admin runs the FHE computation
