@@ -51,15 +51,15 @@ impl ServerResponse {
         Self::err(&format!("User {user_id} hasn't registered yet"))
     }
 
-    pub(crate) fn err_unregistered_users(user_len: usize) -> Self {
-        Self::err(&format!(
-            "Some users haven't registered yet. Want {TOTAL_USERS}  Got {user_len}"
-        ))
-    }
-
     pub(crate) fn err_already_concluded(status: &ServerStatus) -> Self {
         Self::err(&format!(
             "Registration already concluded, status: {:?}",
+            status
+        ))
+    }
+    pub(crate) fn err_not_ready_for_input(status: &ServerStatus) -> Self {
+        Self::err(&format!(
+            "Not ready for input submission, status: {:?}",
             status
         ))
     }
