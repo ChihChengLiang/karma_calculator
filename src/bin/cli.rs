@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Error};
 use std::{collections::HashMap, fmt::Display, iter::zip};
-use tabled::{settings::Style, Table};
+use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
@@ -210,8 +210,7 @@ async fn cmd_score_encrypt(
 
     println!("Submit the cipher and the server key share");
     let submission = CipherSubmission::new(*user_id, cipher.clone(), sks.clone());
-    let response = client.submit_cipher(&submission).await?;
-    println!("{:?}", response);
+    client.submit_cipher(&submission).await?;
     Ok(scores)
 }
 
@@ -255,17 +254,13 @@ async fn cmd_download_shares(
     ck: &ClientKey,
     shares: &mut HashMap<(usize, usize), Vec<u64>>,
     fhe_out: &Vec<FheUint8>,
+    scores: &[u8],
 ) -> Result<Vec<u8>, Error> {
     println!("Acquiring decryption shares needed");
     for (output_id, user_id) in (0..3).cartesian_product(0..3) {
         if shares.get(&(output_id, user_id)).is_none() {
-            println!("Acquiring user {user_id}'s decryption shares for output {output_id}");
             let ds = client.get_decryption_share(output_id, user_id).await?;
             shares.insert((output_id, user_id), ds);
-        } else {
-            println!(
-                "Already have user {user_id}'s decryption shares for output {output_id}, skip."
-            );
         }
     }
     println!("Decrypt the encrypted output");
@@ -285,10 +280,7 @@ async fn cmd_download_shares(
         })
         .collect_vec();
     println!("Final decrypted output:");
-    for (name, output) in zip(names, &decrypted_output) {
-        println!("\t{} has {} karma", name, output);
-    }
-
+    present_balance(names, scores, &decrypted_output);
     Ok(decrypted_output)
 }
 
@@ -358,8 +350,15 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                 Err(err) => Err((err, State::CompletedRun(s))),
             },
             State::DownloadedOutput(mut s) => {
-                match cmd_download_shares(&s.client, &s.names, &s.ck, &mut s.shares, &s.fhe_out)
-                    .await
+                match cmd_download_shares(
+                    &s.client,
+                    &s.names,
+                    &s.ck,
+                    &mut s.shares,
+                    &s.fhe_out,
+                    &s.scores,
+                )
+                .await
                 {
                     Ok(decrypted_output) => Ok(State::Decrypted(StateDecrypted {
                         names: s.names,
@@ -374,12 +373,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                 decrypted_output,
                 scores,
             }) => {
-                let table = zip(zip(&names, &scores), &decrypted_output).collect_vec();
-                println!(
-                    "{}",
-                    Table::new(table).with(Style::ascii_rounded()).to_string()
-                );
-
+                present_balance(&names, &scores, &decrypted_output);
                 Ok(State::Decrypted(StateDecrypted {
                     names,
                     decrypted_output,
@@ -392,4 +386,21 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
     } else {
         Err((anyhow!("Unknown command {}", cmd), state))
     }
+}
+
+fn present_balance(names: &[String], scores: &[u8], final_balances: &[u8]) {
+    #[derive(Tabled)]
+    struct Row {
+        name: String,
+        karma_i_sent: u8,
+        decrypted_karma_balance: u8,
+    }
+    let table = zip(zip(names, scores), final_balances)
+        .map(|((name, &karma_i_sent), &decrypted_karma_balance)| Row {
+            name: name.to_string(),
+            karma_i_sent,
+            decrypted_karma_balance,
+        })
+        .collect_vec();
+    println!("{}", Table::new(table).with(Style::ascii_rounded()));
 }
