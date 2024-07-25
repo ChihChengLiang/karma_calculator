@@ -2,7 +2,7 @@ use crate::types::{
     Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, RegisteredUser,
     Seed, ServerKeyShare, UserId,
 };
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, bail, Error};
 use reqwest::{
     self,
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
@@ -40,21 +40,13 @@ impl WebClient {
     ) -> Result<T, Error> {
         match self {
             WebClient::Prod { client, .. } => {
-                let result = client
-                    .get(self.path(path))
-                    .send()
-                    .await?
-                    .json::<T>()
-                    .await?;
-                Ok(result)
+                let response = client.get(self.path(path)).send().await?;
+                handle_response_prod(response).await
             }
-            WebClient::Test(client) => client
-                .get(path)
-                .dispatch()
-                .await
-                .into_json::<T>()
-                .await
-                .ok_or(anyhow!("Request failed")),
+            WebClient::Test(client) => {
+                let response = client.get(path).dispatch().await;
+                handle_response_test(response).await
+            }
         }
     }
     async fn post_nobody<T: Send + for<'de> Deserialize<'de> + 'static>(
@@ -63,16 +55,13 @@ impl WebClient {
     ) -> Result<T, Error> {
         match self {
             WebClient::Prod { client, .. } => {
-                let result = client.post(self.path(path)).send().await?.json().await?;
-                Ok(result)
+                let response = client.post(self.path(path)).send().await?;
+                handle_response_prod(response).await
             }
-            WebClient::Test(client) => client
-                .post(path)
-                .dispatch()
-                .await
-                .into_json::<T>()
-                .await
-                .ok_or(anyhow!("Request failed")),
+            WebClient::Test(client) => {
+                let response = client.post(path).dispatch().await;
+                handle_response_test(response).await
+            }
         }
     }
     async fn post<T: Send + for<'de> Deserialize<'de> + 'static>(
@@ -82,23 +71,13 @@ impl WebClient {
     ) -> Result<T, Error> {
         match self {
             WebClient::Prod { client, .. } => {
-                let result = client
-                    .post(self.path(path))
-                    .body(body)
-                    .send()
-                    .await?
-                    .json()
-                    .await?;
-                Ok(result)
+                let response = client.post(self.path(path)).body(body).send().await?;
+                handle_response_prod(response).await
             }
-            WebClient::Test(client) => client
-                .post(path)
-                .body(body)
-                .dispatch()
-                .await
-                .into_json::<T>()
-                .await
-                .ok_or(anyhow!("Request failed")),
+            WebClient::Test(client) => {
+                let response = client.post(path).body(body).dispatch().await;
+                handle_response_test(response).await
+            }
         }
     }
     async fn post_msgpack<T: Send + for<'de> Deserialize<'de> + 'static>(
@@ -108,7 +87,7 @@ impl WebClient {
     ) -> Result<T, Error> {
         match self {
             WebClient::Prod { client, .. } => {
-                let result = client
+                let response = client
                     .post(self.path(path))
                     .headers(HeaderMap::from_iter([(
                         CONTENT_TYPE,
@@ -116,19 +95,13 @@ impl WebClient {
                     )]))
                     .body(msgpack::to_compact_vec(body)?)
                     .send()
-                    .await?
-                    .json()
                     .await?;
-                Ok(result)
+                handle_response_prod(response).await
             }
-            WebClient::Test(client) => client
-                .post(path)
-                .msgpack(body)
-                .dispatch()
-                .await
-                .into_json::<T>()
-                .await
-                .ok_or(anyhow!("Request failed")),
+            WebClient::Test(client) => {
+                let response = client.post(path).msgpack(body).dispatch().await;
+                handle_response_test(response).await
+            }
         }
     }
 
@@ -185,5 +158,35 @@ impl WebClient {
     ) -> Result<DecryptionShare, Error> {
         self.get(&format!("/decryption_share/{output_id}/{user_id}"))
             .await
+    }
+}
+
+async fn handle_response_prod<T: Send + for<'de> Deserialize<'de> + 'static>(
+    response: reqwest::Response,
+) -> Result<T, Error> {
+    match response.status().as_u16() {
+        200 => Ok(response.json::<T>().await?),
+        404 | 500 | _ => {
+            let err = response.text().await?;
+            bail!("Server responded error: {:?}", err)
+        }
+    }
+}
+
+async fn handle_response_test<T: Send + for<'de> Deserialize<'de> + 'static>(
+    response: rocket::local::asynchronous::LocalResponse<'_>,
+) -> Result<T, Error> {
+    match response.status().code {
+        200 => response
+            .into_json::<T>()
+            .await
+            .ok_or(anyhow!("Can't parse response output")),
+        404 | 500 | _ => {
+            let err = response
+                .into_string()
+                .await
+                .ok_or(anyhow!("Can't parse response output"))?;
+            bail!("Server responded error: {:?}", err)
+        }
     }
 }
