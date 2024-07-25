@@ -173,8 +173,8 @@ async fn full_flow() {
     // Conclude the registration
     client.conclude_registration().await.unwrap();
 
-    let users_record = client.get_names().await.unwrap();
-    println!("users records {:?}", users_record);
+    let dashboard = client.get_dashboard().await.unwrap();
+    println!("users records {:?}", dashboard.users);
 
     // Assign scores
     users[0].assign_scores(&[0, 2, 4, 6]);

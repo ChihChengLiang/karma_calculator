@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use phantom_zone::{
     evaluator::NonInteractiveMultiPartyCrs,
     keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare, parameters::BoolParameters,
@@ -8,7 +9,8 @@ use rocket::tokio::sync::Mutex;
 use rocket::{Responder, State};
 use std::collections::HashMap;
 use std::fmt::Display;
-use tabled::Tabled;
+use tabled::settings::Style;
+use tabled::{Table, Tabled};
 use thiserror::Error;
 
 pub type Seed = [u8; 32];
@@ -95,7 +97,7 @@ impl ServerStatus {
 
 impl Display for ServerStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "[[ {:?} ]]", self)
     }
 }
 
@@ -180,6 +182,35 @@ impl RegisteredUser {
 // We're going to store all of the messages here. No need for a DB.
 pub(crate) type UserList = Mutex<Vec<RegisteredUser>>;
 pub(crate) type Users<'r> = &'r State<UserList>;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Dashboard {
+    pub status: ServerStatus,
+    pub users: Vec<RegisteredUser>,
+}
+impl Dashboard {
+    pub(crate) fn new(status: &ServerStatus, users: &[RegisteredUser]) -> Self {
+        Self {
+            status: status.clone(),
+            users: users.to_vec(),
+        }
+    }
+
+    pub fn get_names(&self) -> Vec<String> {
+        self.users
+            .iter()
+            .map(|reg| reg.name.to_string())
+            .collect_vec()
+    }
+
+    pub fn print_presentation(&self) {
+        println!("🤖🧠 {}", self.status);
+        let users = Table::new(&self.users)
+            .with(Style::ascii_rounded())
+            .to_string();
+        println!("{}", users);
+    }
+}
 
 /// FheUint8 index -> user_id -> decryption share
 pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;

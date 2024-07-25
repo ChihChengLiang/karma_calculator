@@ -1,6 +1,6 @@
 use crate::types::{
-    Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, RegisteredUser,
-    Seed, ServerKeyShare, UserId,
+    Cipher, CipherSubmission, Dashboard, DecryptionShare, DecryptionShareSubmission, FheUint8,
+    RegisteredUser, Seed, ServerKeyShare, UserId,
 };
 use anyhow::{anyhow, bail, Error};
 use reqwest::{
@@ -112,11 +112,11 @@ impl WebClient {
     pub async fn register(&self, name: &str) -> Result<RegisteredUser, Error> {
         self.post("/register", name.as_bytes().to_vec()).await
     }
-    pub async fn get_names(&self) -> Result<Vec<RegisteredUser>, Error> {
-        self.get("/users").await
+    pub async fn get_dashboard(&self) -> Result<Dashboard, Error> {
+        self.get("/dashboard").await
     }
 
-    pub async fn conclude_registration(&self) -> Result<Vec<RegisteredUser>, Error> {
+    pub async fn conclude_registration(&self) -> Result<Dashboard, Error> {
         self.post_nobody("/conclude_registration").await
     }
 

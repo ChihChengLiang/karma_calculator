@@ -194,11 +194,9 @@ async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, Web
 }
 
 async fn cmd_get_names(client: &WebClient) -> Result<Vec<String>, Error> {
-    let users = client.get_names().await?;
-    let names = users.iter().map(|reg| reg.name.to_string()).collect_vec();
-    let users = Table::new(users).with(Style::ascii_rounded()).to_string();
-    println!("{}", users);
-
+    let dashboard = client.get_dashboard().await?;
+    let names = dashboard.get_names();
+    dashboard.print_presentation();
     Ok(names)
 }
 

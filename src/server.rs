@@ -2,9 +2,9 @@ use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, Param
 
 use crate::circuit::{derive_server_key, evaluate_circuit};
 use crate::types::{
-    CipherSubmission, DecryptionShareSubmission, Error, ErrorResponse, MutexServerStatus,
-    MutexServerStorage, RegisteredUser, ServerStatus, ServerStorage, UserList, UserStatus,
-    UserStorage, Users,
+    CipherSubmission, Dashboard, DecryptionShareSubmission, Error, ErrorResponse,
+    MutexServerStatus, MutexServerStorage, RegisteredUser, ServerStatus, ServerStorage, UserList,
+    UserStatus, UserStorage, Users,
 };
 use crate::{DecryptionShare, Seed, UserId};
 use rand::{thread_rng, RngCore};
@@ -44,18 +44,21 @@ async fn register(
 async fn conclude_registration(
     users: Users<'_>,
     status: &State<MutexServerStatus>,
-) -> Result<Json<Vec<RegisteredUser>>, ErrorResponse> {
+) -> Result<Json<Dashboard>, ErrorResponse> {
     let mut s = status.lock().await;
     s.ensure(ServerStatus::ReadyForJoining)?;
     s.transit(ServerStatus::ReadyForInputs);
     let users = users.lock().await;
-    Ok(Json(users.to_vec()))
+    let dashboard = Dashboard::new(&s, &users);
+    Ok(Json(dashboard))
 }
 
-#[get("/users")]
-async fn get_users(users: Users<'_>) -> Json<Vec<RegisteredUser>> {
+#[get("/dashboard")]
+async fn get_dashboard(users: Users<'_>, status: &State<MutexServerStatus>) -> Json<Dashboard> {
+    let s = status.lock().await;
     let users = users.lock().await;
-    Json(users.to_vec())
+    let dashboard = Dashboard::new(&s, &users);
+    Json(dashboard)
 }
 
 /// The user submits the ciphertext
@@ -215,7 +218,7 @@ pub fn rocket() -> Rocket<Build> {
                 get_param,
                 register,
                 conclude_registration,
-                get_users,
+                get_dashboard,
                 submit,
                 run,
                 get_fhe_output,
