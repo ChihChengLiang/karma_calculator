@@ -205,7 +205,6 @@ pub fn setup(seed: &Seed) {
 pub fn rocket() -> Rocket<Build> {
     let mut seed = [0u8; 32];
     thread_rng().fill_bytes(&mut seed);
-
     setup(&seed);
 
     rocket::build()
