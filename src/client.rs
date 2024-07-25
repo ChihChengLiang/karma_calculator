@@ -1,6 +1,6 @@
 use crate::types::{
     Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, RegisteredUser,
-    Seed, ServerKeyShare, ServerResponse, UserId,
+    Seed, ServerKeyShare, UserId,
 };
 use anyhow::{anyhow, Error};
 use reqwest::{
@@ -148,7 +148,7 @@ impl WebClient {
         user_id: UserId,
         cipher_text: &Cipher,
         sks: &ServerKeyShare,
-    ) -> Result<ServerResponse, Error> {
+    ) -> Result<UserId, Error> {
         let submission = CipherSubmission {
             user_id,
             cipher_text: cipher_text.clone(),
@@ -157,7 +157,7 @@ impl WebClient {
         self.post_msgpack("/submit", &submission).await
     }
 
-    pub async fn trigger_fhe_run(&self) -> Result<ServerResponse, Error> {
+    pub async fn trigger_fhe_run(&self) -> Result<String, Error> {
         self.post_nobody("/run").await
     }
 
@@ -169,7 +169,7 @@ impl WebClient {
         &self,
         user_id: usize,
         decryption_shares: &Vec<DecryptionShare>,
-    ) -> Result<ServerResponse, Error> {
+    ) -> Result<UserId, Error> {
         let submission = DecryptionShareSubmission {
             user_id,
             decryption_shares: decryption_shares.to_vec(),

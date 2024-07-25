@@ -5,9 +5,11 @@ use phantom_zone::{
 };
 use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
-use rocket::State;
+use rocket::{Responder, State};
 use std::collections::HashMap;
+use std::fmt::Display;
 use tabled::Tabled;
+use thiserror::Error;
 
 pub type Seed = [u8; 32];
 pub type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
@@ -23,72 +25,46 @@ pub type FheUint8 = phantom_zone::FheUint8;
 
 pub type MutexServerStatus = Mutex<ServerStatus>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct ServerResponse {
-    pub ok: bool,
-    pub msg: String,
+#[derive(Debug, Error)]
+pub(crate) enum Error {
+    #[error("Wrong server state: expect {expect} but got {got}")]
+    WrongServerState {
+        expect: ServerStatus,
+        got: ServerStatus,
+    },
+    #[error("User #{user_id} is unregistered")]
+    UnregisteredUser { user_id: usize },
+    #[error("The ciphertext from user #{user_id} not found")]
+    CipherNotFound { user_id: UserId },
+    #[error("Decryption share of {output_id} from user {user_id} not found")]
+    DecryptionShareNotFound { output_id: usize, user_id: UserId },
+    /// Temporary here
+    #[error("Output not ready")]
+    OutputNotReady,
 }
 
-impl ServerResponse {
-    pub(crate) fn ok(msg: &str) -> Self {
-        Self {
-            ok: true,
-            msg: msg.to_string(),
+#[derive(Responder)]
+pub(crate) enum ErrorResponse {
+    #[response(status = 500, content_type = "json")]
+    ServerError(String),
+    #[response(status = 404, content_type = "json")]
+    NotFoundError(String),
+}
+
+impl From<Error> for ErrorResponse {
+    fn from(error: Error) -> Self {
+        match error {
+            Error::WrongServerState { .. } | Error::CipherNotFound { .. } => {
+                ErrorResponse::ServerError(error.to_string())
+            }
+            Error::DecryptionShareNotFound { .. }
+            | Error::UnregisteredUser { .. }
+            | Error::OutputNotReady => ErrorResponse::NotFoundError(error.to_string()),
         }
-    }
-    pub(crate) fn err(msg: &str) -> Self {
-        Self {
-            ok: false,
-            msg: msg.to_string(),
-        }
-    }
-    pub(crate) fn ok_user(user_id: UserId) -> Self {
-        Self::ok(&format!("{user_id}"))
-    }
-
-    pub(crate) fn err_unregistered_user(user_id: UserId) -> Self {
-        Self::err(&format!("User {user_id} hasn't registered yet"))
-    }
-
-    pub(crate) fn err_already_concluded(status: &ServerStatus) -> Self {
-        Self::err(&format!(
-            "Registration already concluded, status: {:?}",
-            status
-        ))
-    }
-    pub(crate) fn err_not_ready_for_input(status: &ServerStatus) -> Self {
-        Self::err(&format!(
-            "Not ready for input submission, status: {:?}",
-            status
-        ))
-    }
-
-    pub(crate) fn err_not_ready_for_run(status: &ServerStatus) -> Self {
-        Self::err(&format!("Not ready for computation, status: {:?}", status))
-    }
-    pub(crate) fn err_run_in_progress() -> Self {
-        Self::err("Fhe computation already running")
-    }
-
-    pub(crate) fn ok_run_already_end() -> Self {
-        Self::ok("Fhe computation completed")
-    }
-    pub(crate) fn err_missing_submission(user_id: UserId) -> Self {
-        Self::err(&format!("can't find cipher submission from user {user_id}"))
-    }
-    pub(crate) fn err_output_not_ready() -> Self {
-        Self::err("FHE output not ready yet")
-    }
-
-    pub(crate) fn err_decryption_share_not_found(output_id: usize, user_id: UserId) -> Self {
-        Self::err(&format!(
-            "Decryption share of {output_id} from user {user_id} not found"
-        ))
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(crate = "rocket::serde")]
 pub enum ServerStatus {
     /// Users are allowed to join the computation
@@ -99,6 +75,28 @@ pub enum ServerStatus {
     ReadyForRunning,
     RunningFhe,
     CompletedFhe,
+}
+
+impl ServerStatus {
+    pub(crate) fn ensure(&self, expect: Self) -> Result<&Self, Error> {
+        if self == &expect {
+            Ok(self)
+        } else {
+            Err(Error::WrongServerState {
+                expect,
+                got: self.clone(),
+            })
+        }
+    }
+    pub(crate) fn transit(&mut self, next: Self) {
+        *self = next;
+    }
+}
+
+impl Display for ServerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub(crate) type MutexServerStorage = Mutex<ServerStorage>;

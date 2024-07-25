@@ -241,12 +241,8 @@ async fn cmd_score_encrypt(
 async fn cmd_run(client: &WebClient) -> Result<(), Error> {
     println!("Requesting FHE run ...");
     let resp = client.trigger_fhe_run().await?;
-    if resp.ok {
-        println!("Server: {}", resp.msg);
-        Ok(())
-    } else {
-        Err(anyhow!("Server: {}", resp.msg))
-    }
+    println!("Server: {}", resp);
+    Ok(())
 }
 
 async fn cmd_download_output(
