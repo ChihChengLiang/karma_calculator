@@ -23,12 +23,36 @@ async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
 
 /// A user registers a name and get an ID
 #[post("/register", data = "<name>")]
-async fn register(name: &str, users: Users<'_>) -> Json<RegisteredUser> {
+async fn register(
+    name: &str,
+    users: Users<'_>,
+    status: &State<MutexServerStatus>,
+) -> Result<Json<RegisteredUser>, Json<ServerResponse>> {
+    let s = status.lock().await;
+    if !matches!(*s, ServerStatus::ReadyForJoining) {
+        return Err(Json(ServerResponse::err_already_concluded(&s)));
+    }
     let mut users = users.lock().await;
     let user_id = users.len();
     let user = RegisteredUser::new(user_id, name);
     users.push(user.clone());
-    Json(user)
+    Ok(Json(user))
+}
+
+#[post("/conclude_registration")]
+async fn conclude_registration(
+    users: Users<'_>,
+    status: &State<MutexServerStatus>,
+) -> Result<Json<Vec<RegisteredUser>>, Json<ServerResponse>> {
+    let mut s = status.lock().await;
+    match *s {
+        ServerStatus::ReadyForJoining => *s = ServerStatus::ReadyForInputs,
+        _ => {
+            return Err(Json(ServerResponse::err_already_concluded(&s)));
+        }
+    };
+    let users = users.lock().await;
+    Ok(Json(users.to_vec()))
 }
 
 #[get("/users")]
@@ -42,8 +66,17 @@ async fn get_users(users: Users<'_>) -> Json<Vec<RegisteredUser>> {
 async fn submit(
     submission: MsgPack<CipherSubmission>,
     users: Users<'_>,
+    status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
 ) -> Json<ServerResponse> {
+    match *s {
+        ServerStatus::ReadyForJoining => *s = ServerStatus::ReadyForInputs,
+        ServerStatus::ReadyForInputs => todo!(),
+        ServerStatus::ReadyForRunning => todo!(),
+        ServerStatus::RunningFhe => todo!(),
+        ServerStatus::CompletedFhe => todo!(),
+    };
+
     let user_id = submission.0.user_id;
 
     let mut users = users.lock().await;
@@ -82,11 +115,6 @@ async fn run(
     drop(s);
     let users = users.lock().await;
     println!("checking if we have all user submissions");
-    if users.len() < TOTAL_USERS {
-        *status.lock().await = ServerStatus::ReadyForRunning;
-        return Json(ServerResponse::err_unregistered_users(users.len()));
-    }
-    println!("load server keys and ciphers");
     let mut ss = ss.lock().await;
 
     let mut server_key_shares = vec![];
@@ -184,6 +212,7 @@ pub fn rocket() -> Rocket<Build> {
             routes![
                 get_param,
                 register,
+                conclude_registration,
                 get_users,
                 submit,
                 run,
