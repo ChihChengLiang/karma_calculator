@@ -4,7 +4,7 @@ use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
-use karma_calculator::{setup, DecryptionSharesMap, WebClient, TOTAL_USERS};
+use karma_calculator::{setup, DecryptionSharesMap, ServerStatus, WebClient, TOTAL_USERS};
 
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -26,7 +26,7 @@ struct Cli2 {
 enum State {
     Init(StateInit),
     Setup(StateSetup),
-    GotNames(StateGotNames),
+    ConcludedRegistration(ConcludedRegistration),
     EncryptedInput(EncryptedInput),
     CompletedRun(StateCompletedRun),
     DownloadedOutput(StateDownloadedOuput),
@@ -38,7 +38,7 @@ impl Display for State {
         let label = match self {
             State::Init(_) => "Initialization",
             State::Setup(_) => "Setup",
-            State::GotNames(_) => "Got Names",
+            State::ConcludedRegistration(_) => "Concluded Registration",
             State::EncryptedInput(_) => "Encrypted Input",
             State::CompletedRun(_) => "Completed Run",
             State::DownloadedOutput(_) => "Downloaded Output",
@@ -55,9 +55,8 @@ impl State {
                 format!("Hi {name}, we just connected to server {url}.")
             }
             State::Setup(StateSetup { .. }) => format!("✅ Setup completed!"),
-            State::GotNames(_) => format!("✅ Users' names acquired!"),
+            State::ConcludedRegistration(_) => format!("✅ Users' names acquired!"),
             State::EncryptedInput(_) => format!("✅ Ciphertext submitted!"),
-
             State::CompletedRun(_) => format!("✅ FHE run completed!"),
             State::DownloadedOutput(_) => format!("✅ FHE output downloaded!"),
             State::Decrypted(_) => format!("✅ FHE output decrypted!"),
@@ -67,7 +66,8 @@ impl State {
 
     fn print_instruction(&self) {
         let msg = match self {
-            State::GotNames(_) => {
+            State::Setup(_) => "Enter `conclude` to end registration or `next` to proceed",
+            State::ConcludedRegistration(_) => {
                 "Enter `next` with scores for each user to continue. Example: `next 1 2 3`"
             }
             State::Decrypted(_) => "Exit with `CTRL-D`",
@@ -89,7 +89,7 @@ struct StateSetup {
     user_id: usize,
 }
 
-struct StateGotNames {
+struct ConcludedRegistration {
     name: String,
     client: WebClient,
     ck: ClientKey,
@@ -193,11 +193,17 @@ async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, Web
     Ok((ck, user.id, client))
 }
 
-async fn cmd_get_names(client: &WebClient) -> Result<Vec<String>, Error> {
+async fn cmd_get_names(client: &WebClient) -> Result<(bool, Vec<String>), Error> {
     let dashboard = client.get_dashboard().await?;
+    let is_concluded = matches!(dashboard.status, ServerStatus::ReadyForInputs);
     let names = dashboard.get_names();
     dashboard.print_presentation();
-    Ok(names)
+    Ok((is_concluded, names))
+}
+
+async fn cmd_conclude_registration(client: &WebClient) -> Result<Vec<String>, Error> {
+    let dashboard = client.conclude_registration().await?;
+    Ok(dashboard.get_names())
 }
 
 async fn cmd_score_encrypt(
@@ -322,16 +328,22 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                 Err(err) => Err((err, State::Init(s))),
             },
             State::Setup(s) => match cmd_get_names(&s.client).await {
-                Ok(names) => Ok(State::GotNames(StateGotNames {
-                    name: s.name,
-                    client: s.client,
-                    ck: s.ck,
-                    user_id: s.user_id,
-                    names,
-                })),
+                Ok((is_concluded, names)) => {
+                    if is_concluded {
+                        Ok(State::ConcludedRegistration(ConcludedRegistration {
+                            name: s.name,
+                            client: s.client,
+                            ck: s.ck,
+                            user_id: s.user_id,
+                            names,
+                        }))
+                    } else {
+                        Ok(State::Setup(s))
+                    }
+                }
                 Err(err) => Err((err, State::Setup(s))),
             },
-            State::GotNames(s) => {
+            State::ConcludedRegistration(s) => {
                 match cmd_score_encrypt(args, &s.client, &s.user_id, &s.names, &s.ck).await {
                     Ok(scores) => Ok(State::EncryptedInput(EncryptedInput {
                         name: s.name,
@@ -341,7 +353,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                         names: s.names,
                         scores,
                     })),
-                    Err(err) => Err((err, State::GotNames(s))),
+                    Err(err) => Err((err, State::ConcludedRegistration(s))),
                 }
             }
             State::EncryptedInput(s) => match cmd_run(&s.client).await {
@@ -399,6 +411,20 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                     scores,
                 }))
             }
+        }
+    } else if cmd == &"conclude" {
+        match state {
+            State::Setup(s) => match cmd_conclude_registration(&s.client).await {
+                Ok(names) => Ok(State::ConcludedRegistration(ConcludedRegistration {
+                    name: s.name,
+                    client: s.client,
+                    ck: s.ck,
+                    user_id: s.user_id,
+                    names,
+                })),
+                Err(err) => Err((err, State::Setup(s))),
+            },
+            _ => Err((anyhow!("Invalid state for command {}", cmd), state)),
         }
     } else if cmd.starts_with('#') {
         Ok(state)

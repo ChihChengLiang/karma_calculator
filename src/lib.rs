@@ -8,7 +8,7 @@ pub use server::{rocket, setup};
 
 pub use types::{
     Cipher, ClientKey, DecryptionShare, DecryptionSharesMap, FheUint8, MutexServerStatus,
-    RegisteredUser, Seed, ServerKeyShare, UserId, TOTAL_USERS,
+    RegisteredUser, Seed, ServerKeyShare, ServerStatus, UserId, TOTAL_USERS,
 };
 
 #[cfg(test)]
