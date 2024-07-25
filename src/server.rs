@@ -66,7 +66,10 @@ async fn run(
 ) -> Json<ServerResponse> {
     let mut s = status.lock().await;
     match *s {
-        ServerStatus::Waiting => {
+        ServerStatus::ReadyForJoining | ServerStatus::ReadyForInputs => {
+            return Json(ServerResponse::err_not_ready_for_run(&s));
+        }
+        ServerStatus::ReadyForRunning => {
             *s = ServerStatus::RunningFhe;
         }
         ServerStatus::RunningFhe => {
@@ -80,7 +83,7 @@ async fn run(
     let users = users.lock().await;
     println!("checking if we have all user submissions");
     if users.len() < TOTAL_USERS {
-        *status.lock().await = ServerStatus::Waiting;
+        *status.lock().await = ServerStatus::ReadyForRunning;
         return Json(ServerResponse::err_unregistered_users(users.len()));
     }
     println!("load server keys and ciphers");
@@ -94,7 +97,7 @@ async fn run(
             ciphers.push((cipher.clone(), user.to_owned()));
             ss.users[user_id] = UserStorage::DecryptionShare(None);
         } else {
-            *status.lock().await = ServerStatus::Waiting;
+            *status.lock().await = ServerStatus::ReadyForRunning;
             return Json(ServerResponse::err_missing_submission(user_id));
         }
     }
@@ -175,7 +178,7 @@ pub fn rocket() -> Rocket<Build> {
     rocket::build()
         .manage(UserList::new(vec![]))
         .manage(MutexServerStorage::new(ServerStorage::new(seed)))
-        .manage(MutexServerStatus::new(ServerStatus::Waiting))
+        .manage(MutexServerStatus::new(ServerStatus::ReadyForJoining))
         .mount(
             "/",
             routes![

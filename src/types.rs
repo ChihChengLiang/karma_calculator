@@ -56,6 +56,10 @@ impl ServerResponse {
             "Some users haven't registered yet. Want {TOTAL_USERS}  Got {user_len}"
         ))
     }
+
+    pub(crate) fn err_not_ready_for_run(status: &ServerStatus) -> Self {
+        Self::err(&format!("Not ready for computation, status: {:?}", status))
+    }
     pub(crate) fn err_run_in_progress() -> Self {
         Self::err("Fhe computation already running")
     }
@@ -80,7 +84,9 @@ impl ServerResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub enum ServerStatus {
-    Waiting,
+    ReadyForJoining,
+    ReadyForInputs,
+    ReadyForRunning,
     RunningFhe,
     CompletedFhe,
 }
