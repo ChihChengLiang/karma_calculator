@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use crate::*;
 use anyhow::Error;
-use phantom_zone::set_common_reference_seed;
 use rocket::{
     serde::{Deserialize, Serialize},
     Build, Rocket,
@@ -13,32 +12,34 @@ use rocket::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 // We're not sending the User struct in rockets. This macro is here just for Serde reasons
 #[serde(crate = "rocket::serde")]
-pub struct User {
+struct User {
     name: String,
     // step 0: get seed
     seed: Option<Seed>,
     // step 0.5: gen client key
     ck: Option<ClientKey>,
     // step 1: get userID
-    pub id: Option<UserId>,
+    id: Option<UserId>,
+    total_users: Option<usize>,
     // step 2: assign scores
-    scores: Option<[u8; 4]>,
+    scores: Option<Vec<u8>>,
     // step 3: gen key and cipher
-    pub server_key: Option<ServerKeyShare>,
-    pub cipher: Option<Cipher>,
+    server_key: Option<ServerKeyShare>,
+    cipher: Option<Cipher>,
     // step 4: get FHE output
     fhe_out: Option<Vec<FheUint8>>,
     // step 5: derive decryption shares
-    pub decryption_shares: DecryptionSharesMap,
+    decryption_shares: DecryptionSharesMap,
 }
 
 impl User {
-    pub fn new(name: &str) -> Self {
+    fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
+            seed: None,
             ck: None,
             id: None,
-            seed: None,
+            total_users: None,
             scores: None,
             server_key: None,
             cipher: None,
@@ -46,56 +47,54 @@ impl User {
             decryption_shares: HashMap::new(),
         }
     }
-
-    pub fn update_name(&mut self, name: &str) -> &mut Self {
-        self.name = name.to_string();
-        self
-    }
-
-    pub fn assign_seed(&mut self, seed: Seed) -> &mut Self {
+    fn assign_seed(&mut self, seed: Seed) -> &mut Self {
         self.seed = Some(seed);
         self
     }
 
-    pub fn set_seed(&self) {
-        set_common_reference_seed(self.seed.unwrap());
-    }
-
-    pub fn gen_client_key(&mut self) -> &mut Self {
+    fn gen_client_key(&mut self) -> &mut Self {
         self.ck = Some(gen_client_key());
         self
     }
 
-    pub fn set_id(&mut self, id: usize) -> &mut Self {
+    fn set_id(&mut self, id: usize) -> &mut Self {
         self.id = Some(id);
         self
     }
-    pub fn assign_scores(&mut self, scores: &[u8; 4]) -> &mut Self {
-        self.scores = Some(*scores);
+
+    fn set_total_users(&mut self, total_users: usize) -> &mut Self {
+        self.total_users = Some(total_users);
+        self
+    }
+    fn assign_scores(&mut self, scores: &[u8]) -> &mut Self {
+        self.scores = Some(scores.to_vec());
         self
     }
 
-    pub fn gen_cipher(&mut self) -> &mut Self {
-        let scores = self.scores.unwrap().to_vec();
+    fn gen_cipher(&mut self) -> &mut Self {
+        let scores = self.scores.as_ref().unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
         let cipher: Cipher = ck.encrypt(scores.as_slice());
         self.cipher = Some(cipher);
         self
     }
 
-    pub fn gen_server_key_share(&mut self) -> &mut Self {
-        let server_key =
-            gen_server_key_share(self.id.unwrap(), TOTAL_USERS, self.ck.as_ref().unwrap());
+    fn gen_server_key_share(&mut self) -> &mut Self {
+        let server_key = gen_server_key_share(
+            self.id.unwrap(),
+            self.total_users.unwrap(),
+            self.ck.as_ref().unwrap(),
+        );
         self.server_key = Some(server_key);
         self
     }
 
-    pub fn set_fhe_out(&mut self, fhe_out: Vec<FheUint8>) -> &mut Self {
+    fn set_fhe_out(&mut self, fhe_out: Vec<FheUint8>) -> &mut Self {
         self.fhe_out = Some(fhe_out);
         self
     }
     /// Populate decryption_shares with my shares
-    pub fn gen_decryption_shares(&mut self) -> &mut Self {
+    fn gen_decryption_shares(&mut self) -> &mut Self {
         let ck = self.ck.as_ref().expect("already exists");
         let fhe_out = self.fhe_out.as_ref().expect("exists");
         let my_id = self.id.expect("exists");
@@ -107,7 +106,7 @@ impl User {
         self
     }
 
-    pub fn get_my_shares(&self) -> Vec<DecryptionShare> {
+    fn get_my_shares(&self) -> Vec<DecryptionShare> {
         let my_id = self.id.expect("exists");
         (0..3)
             .map(|output_id| {
@@ -119,7 +118,8 @@ impl User {
             .collect_vec()
     }
 
-    pub fn decrypt_everything(&self) -> Vec<u8> {
+    fn decrypt_everything(&self) -> Vec<u8> {
+        let total_users = self.total_users.expect("exist");
         let ck = self.ck.as_ref().expect("already exists");
         let fhe_out = self.fhe_out.as_ref().expect("exists");
 
@@ -127,7 +127,7 @@ impl User {
             .iter()
             .enumerate()
             .map(|(output_id, output)| {
-                let decryption_shares = (0..TOTAL_USERS)
+                let decryption_shares = (0..total_users)
                     .map(|user_id| {
                         self.decryption_shares
                             .get(&(output_id, user_id))
@@ -153,6 +153,7 @@ async fn full_flow() {
     let client = WebClient::new_test(rocket()).await.unwrap();
 
     let mut users = vec![User::new("Barry"), User::new("Justin"), User::new("Brian")];
+    let total_users = users.len();
 
     println!("acquire seeds");
 
@@ -171,7 +172,11 @@ async fn full_flow() {
         user.set_id(reg.id);
     }
     // Conclude the registration
-    client.conclude_registration().await.unwrap();
+    let dashboard = client.conclude_registration().await.unwrap();
+
+    for user in users.iter_mut() {
+        user.set_total_users(dashboard.users.len());
+    }
 
     let dashboard = client.get_dashboard().await.unwrap();
     println!("users records {:?}", dashboard.users);
@@ -221,7 +226,7 @@ async fn full_flow() {
     }
     // Users acquire all decryption shares they want
     for user in users.iter_mut() {
-        for (output_id, user_id) in (0..3).cartesian_product(0..TOTAL_USERS) {
+        for (output_id, user_id) in (0..total_users).cartesian_product(0..total_users) {
             if user.decryption_shares.get(&(output_id, user_id)).is_none() {
                 let ds = client
                     .get_decryption_share(output_id, user_id)

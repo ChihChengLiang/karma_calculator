@@ -215,9 +215,6 @@ impl Dashboard {
 /// FheUint8 index -> user_id -> decryption share
 pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 
-// TODO: how should the user get this value before everyone registered?
-pub const TOTAL_USERS: usize = 3;
-
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub(crate) struct CipherSubmission {

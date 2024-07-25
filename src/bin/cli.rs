@@ -1,10 +1,10 @@
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, ensure, Error};
 use std::{collections::HashMap, fmt::Display, iter::zip};
 use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
-use karma_calculator::{setup, DecryptionSharesMap, ServerStatus, WebClient, TOTAL_USERS};
+use karma_calculator::{setup, DecryptionSharesMap, ServerStatus, WebClient};
 
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -213,6 +213,7 @@ async fn cmd_score_encrypt(
     names: &Vec<String>,
     ck: &ClientKey,
 ) -> Result<Vec<u8>, Error> {
+    let total_users = names.len();
     let scores: Result<Vec<u8>, Error> = args
         .iter()
         .map(|s| {
@@ -223,6 +224,12 @@ async fn cmd_score_encrypt(
         .into_iter()
         .collect();
     let scores = scores?;
+    ensure!(
+        scores.len() == total_users,
+        "Mismatch scores and user number. Score: {}, users: {}",
+        scores.len(),
+        total_users
+    );
     let total = scores.iter().sum();
     for (name, score) in zip(names, scores.iter()) {
         println!("Give {name} {score} karma");
@@ -235,7 +242,7 @@ async fn cmd_score_encrypt(
     println!("Encrypting Inputs");
     let cipher = ck.encrypt(plain_text.as_slice());
     println!("Generating server key share");
-    let sks = gen_server_key_share(*user_id, TOTAL_USERS, ck);
+    let sks = gen_server_key_share(*user_id, total_users, ck);
 
     println!("Submit the cipher and the server key share");
     client.submit_cipher(*user_id, &cipher, &sks).await?;
@@ -281,8 +288,9 @@ async fn cmd_download_shares(
     fhe_out: &Vec<FheUint8>,
     scores: &[u8],
 ) -> Result<Vec<u8>, Error> {
+    let total_users = names.len();
     println!("Acquiring decryption shares needed");
-    for (output_id, user_id) in (0..3).cartesian_product(0..3) {
+    for (output_id, user_id) in (0..total_users).cartesian_product(0..total_users) {
         if shares.get(&(output_id, user_id)).is_none() {
             let ds = client.get_decryption_share(output_id, user_id).await?;
             shares.insert((output_id, user_id), ds);
@@ -293,7 +301,7 @@ async fn cmd_download_shares(
         .iter()
         .enumerate()
         .map(|(output_id, output)| {
-            let decryption_shares = (0..TOTAL_USERS)
+            let decryption_shares = (0..total_users)
                 .map(|user_id| {
                     shares
                         .get(&(output_id, user_id))
