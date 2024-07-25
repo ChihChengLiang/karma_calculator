@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error};
-use std::{collections::HashMap, iter::zip};
+use std::{collections::HashMap, fmt::Display, iter::zip};
 use tabled::{settings::Style, Table};
 
 use clap::command;
@@ -33,6 +33,25 @@ enum State {
     CompletedRun(StateCompletedRun),
     DownloadedOutput(StateDownloadedOuput),
     Decrypted(StateDecrypted),
+}
+
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let instruction = match self {
+            State::Init(StateInit { name, url }) => format!("Hi {name}, we just connected to server {url}. Please enter `next` to continue"),
+            State::Setup(StateSetup { .. }) => {
+                format!("✅ Setup completed! Enter `next` to continue")
+            }
+            State::GotNames(_) => format!("✅ Users' names acquired! Enter `next` with scores for each user to continue. Example: `next 1 2 3`"),
+            State::EncryptedInput(_) => {
+                format!("✅ Ciphertext submitted! Enter `next` to continue")
+            }
+            State::CompletedRun(_) => format!("✅ FHE run completed! Enter `next` to continue"),
+            State::DownloadedOutput(_) =>format!("✅ FHE output downloaded! Enter `next` to continue"),
+            State::Decrypted(_) => format!("✅ FHE output decrypted!"),
+        };
+        write!(f, "{}", instruction)
+    }
 }
 
 struct StateInit {
@@ -97,13 +116,17 @@ async fn main() {
 
     let mut rl = DefaultEditor::new().unwrap();
     let mut state = State::Init(StateInit { name, url });
+    println!("{}", state);
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str()).unwrap();
                 state = match run(state, line.as_str()).await {
-                    Ok(state) => state,
+                    Ok(state) => {
+                        println!("{}", state);
+                        state
+                    }
                     Err((err, state)) => {
                         println!("Error: {:?}", err);
                         state
