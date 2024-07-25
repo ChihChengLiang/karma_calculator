@@ -2,9 +2,9 @@ use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, Param
 
 use crate::circuit::{derive_server_key, evaluate_circuit};
 use crate::types::{
-    CipherSubmission, DecryptionShareSubmission, MutexServerStatus, MutexServerStorage,
-    RegisteredUser, ServerResponse, ServerStatus, ServerStorage, UserList, UserStatus, UserStorage,
-    Users,
+    CipherSubmission, DecryptionShareSubmission, Error, ErrorResponse, MutexServerStatus,
+    MutexServerStorage, RegisteredUser, ServerStatus, ServerStorage, UserList, UserStatus,
+    UserStorage, Users,
 };
 use crate::{DecryptionShare, Seed, UserId};
 use rand::{thread_rng, RngCore};
@@ -28,11 +28,9 @@ async fn register(
     users: Users<'_>,
     status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
-) -> Result<Json<RegisteredUser>, Json<ServerResponse>> {
+) -> Result<Json<RegisteredUser>, ErrorResponse> {
     let s = status.lock().await;
-    if !matches!(*s, ServerStatus::ReadyForJoining) {
-        return Err(Json(ServerResponse::err_already_concluded(&s)));
-    }
+    s.ensure(ServerStatus::ReadyForJoining)?;
     let mut users = users.lock().await;
     let user_id = users.len();
     let user = RegisteredUser::new(user_id, name);
@@ -46,14 +44,10 @@ async fn register(
 async fn conclude_registration(
     users: Users<'_>,
     status: &State<MutexServerStatus>,
-) -> Result<Json<Vec<RegisteredUser>>, Json<ServerResponse>> {
+) -> Result<Json<Vec<RegisteredUser>>, ErrorResponse> {
     let mut s = status.lock().await;
-    match *s {
-        ServerStatus::ReadyForJoining => *s = ServerStatus::ReadyForInputs,
-        _ => {
-            return Err(Json(ServerResponse::err_already_concluded(&s)));
-        }
-    };
+    s.ensure(ServerStatus::ReadyForJoining)?;
+    s.transit(ServerStatus::ReadyForInputs);
     let users = users.lock().await;
     Ok(Json(users.to_vec()))
 }
@@ -71,31 +65,33 @@ async fn submit(
     users: Users<'_>,
     status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
-) -> Result<Json<ServerResponse>, Json<ServerResponse>> {
-    let s = status.lock().await;
-    if !matches!(*s, ServerStatus::ReadyForInputs) {
-        return Err(Json(ServerResponse::err_not_ready_for_input(&s)));
+) -> Result<Json<UserId>, ErrorResponse> {
+    {
+        status.lock().await.ensure(ServerStatus::ReadyForInputs)?;
     }
-    drop(s);
 
-    let user_id = submission.0.user_id;
+    let CipherSubmission {
+        user_id,
+        cipher_text,
+        sks,
+    } = submission.0;
 
     let mut users = users.lock().await;
     if users.len() <= user_id {
-        return Err(Json(ServerResponse::err_unregistered_user(user_id)));
+        return Err(Error::UnregisteredUser { user_id }.into());
     }
     let mut ss = ss.lock().await;
-    ss.users[user_id] = UserStorage::CipherSks(submission.0.cipher_text, submission.0.sks);
+    ss.users[user_id] = UserStorage::CipherSks(cipher_text, sks);
     users[user_id].status = UserStatus::CipherSubmitted;
 
     if users
         .iter()
         .all(|user| matches!(user.status, UserStatus::CipherSubmitted))
     {
-        *status.lock().await = ServerStatus::ReadyForRunning;
+        status.lock().await.transit(ServerStatus::ReadyForRunning);
     }
 
-    Ok(Json(ServerResponse::ok_user(user_id)))
+    Ok(Json(user_id))
 }
 
 /// The admin runs the fhe computation
@@ -104,23 +100,25 @@ async fn run(
     users: Users<'_>,
     ss: &State<MutexServerStorage>,
     status: &State<MutexServerStatus>,
-) -> Json<ServerResponse> {
-    let mut s = status.lock().await;
-    match *s {
-        ServerStatus::ReadyForJoining | ServerStatus::ReadyForInputs => {
-            return Json(ServerResponse::err_not_ready_for_run(&s));
-        }
-        ServerStatus::ReadyForRunning => {
-            *s = ServerStatus::RunningFhe;
-        }
-        ServerStatus::RunningFhe => {
-            return Json(ServerResponse::err_run_in_progress());
-        }
-        ServerStatus::CompletedFhe => {
-            return Json(ServerResponse::ok_run_already_end());
+) -> Result<Json<String>, ErrorResponse> {
+    {
+        let mut s = status.lock().await;
+        match *s {
+            ServerStatus::ReadyForRunning => {
+                s.transit(ServerStatus::RunningFhe);
+            }
+            ServerStatus::CompletedFhe => {
+                return Ok(Json("FHE already complete".to_string()));
+            }
+            _ => {
+                return Err(Error::WrongServerState {
+                    expect: ServerStatus::ReadyForRunning,
+                    got: s.clone(),
+                }
+                .into())
+            }
         }
     }
-    drop(s);
     let users = users.lock().await;
     println!("checking if we have all user submissions");
     let mut ss = ss.lock().await;
@@ -133,8 +131,8 @@ async fn run(
             ciphers.push((cipher.clone(), user.to_owned()));
             ss.users[user_id] = UserStorage::DecryptionShare(None);
         } else {
-            *status.lock().await = ServerStatus::ReadyForInputs;
-            return Json(ServerResponse::err_missing_submission(user_id));
+            status.lock().await.transit(ServerStatus::ReadyForInputs);
+            return Err(Error::CipherNotFound { user_id }.into());
         }
     }
     // Long running, global variable change
@@ -143,21 +141,19 @@ async fn run(
     // Long running
     ss.fhe_outputs = evaluate_circuit(&ciphers);
 
-    *status.lock().await = ServerStatus::CompletedFhe;
+    status.lock().await.transit(ServerStatus::CompletedFhe);
 
-    Json(ServerResponse::ok("FHE complete"))
+    Ok(Json("FHE complete".to_string()))
 }
 
 #[get("/fhe_output")]
 async fn get_fhe_output(
     ss: &State<MutexServerStorage>,
-) -> Result<Json<Vec<FheUint8>>, Json<ServerResponse>> {
+    status: &State<MutexServerStatus>,
+) -> Result<Json<Vec<FheUint8>>, ErrorResponse> {
+    status.lock().await.ensure(ServerStatus::CompletedFhe)?;
     let fhe_outputs = &ss.lock().await.fhe_outputs;
-    if fhe_outputs.is_empty() {
-        Err(Json(ServerResponse::err_output_not_ready()))
-    } else {
-        Ok(Json(fhe_outputs.to_vec()))
-    }
+    Ok(Json(fhe_outputs.to_vec()))
 }
 
 /// The user submits the ciphertext
@@ -166,19 +162,18 @@ async fn submit_decryption_shares(
     submission: MsgPack<DecryptionShareSubmission>,
     ss: &State<MutexServerStorage>,
     users: Users<'_>,
-) -> Json<ServerResponse> {
+) -> Result<Json<UserId>, ErrorResponse> {
     let user_id = submission.user_id;
     let mut ss = ss.lock().await;
-    let decryption_shares = match ss.users[user_id].get_mut_decryption_shares() {
-        Some(ds) => ds,
-        None => return Json(ServerResponse::err_output_not_ready()),
-    };
+    let decryption_shares = ss.users[user_id]
+        .get_mut_decryption_shares()
+        .ok_or(Error::OutputNotReady)?;
     *decryption_shares = Some(submission.decryption_shares.to_vec());
 
     let mut users = users.lock().await;
 
     users[user_id].status = UserStatus::DecryptionShareSubmitted;
-    Json(ServerResponse::ok_user(user_id))
+    Ok(Json(user_id))
 }
 
 #[get("/decryption_share/<fhe_output_id>/<user_id>")]
@@ -186,18 +181,17 @@ async fn get_decryption_share(
     fhe_output_id: usize,
     user_id: UserId,
     ss: &State<MutexServerStorage>,
-) -> Result<Json<DecryptionShare>, Json<ServerResponse>> {
-    let mut ss = ss.lock().await;
-    match ss.users[user_id].get_mut_decryption_shares() {
-        None => Err(Json(ServerResponse::err_output_not_ready())),
-        Some(decryption_shares_option) => match decryption_shares_option {
-            Some(decryption_shares) => Ok(Json(decryption_shares[fhe_output_id].clone())),
-            None => Err(Json(ServerResponse::err_decryption_share_not_found(
-                fhe_output_id,
-                user_id,
-            ))),
-        },
-    }
+) -> Result<Json<DecryptionShare>, ErrorResponse> {
+    let mut ss: tokio::sync::MutexGuard<ServerStorage> = ss.lock().await;
+    let decryption_shares = ss.users[user_id]
+        .get_mut_decryption_shares()
+        .cloned()
+        .ok_or(Error::OutputNotReady)?
+        .ok_or(Error::DecryptionShareNotFound {
+            output_id: fhe_output_id,
+            user_id,
+        })?;
+    Ok(Json(decryption_shares[fhe_output_id].clone()))
 }
 
 pub fn setup(seed: &Seed) {
