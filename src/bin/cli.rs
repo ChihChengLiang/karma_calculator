@@ -37,20 +37,45 @@ enum State {
 
 impl Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let instruction = match self {
-            State::Init(StateInit { name, url }) => format!("Hi {name}, we just connected to server {url}. Please enter `next` to continue"),
-            State::Setup(StateSetup { .. }) => {
-                format!("✅ Setup completed! Enter `next` to continue")
+        let label = match self {
+            State::Init(_) => "Initialization",
+            State::Setup(_) => "Setup",
+            State::GotNames(_) => "Got Names",
+            State::EncryptedInput(_) => "Encrypted Input",
+            State::CompletedRun(_) => "Completed Run",
+            State::DownloadedOutput(_) => "Downloaded Output",
+            State::Decrypted(_) => "Decrypted",
+        };
+        write!(f, "<< {} >>", label)
+    }
+}
+
+impl State {
+    fn print_status_update(&self) {
+        let msg = match self {
+            State::Init(StateInit { name, url }) => {
+                format!("Hi {name}, we just connected to server {url}.")
             }
-            State::GotNames(_) => format!("✅ Users' names acquired! Enter `next` with scores for each user to continue. Example: `next 1 2 3`"),
-            State::EncryptedInput(_) => {
-                format!("✅ Ciphertext submitted! Enter `next` to continue")
-            }
-            State::CompletedRun(_) => format!("✅ FHE run completed! Enter `next` to continue"),
-            State::DownloadedOutput(_) =>format!("✅ FHE output downloaded! Enter `next` to continue"),
+            State::Setup(StateSetup { .. }) => format!("✅ Setup completed!"),
+            State::GotNames(_) => format!("✅ Users' names acquired!"),
+            State::EncryptedInput(_) => format!("✅ Ciphertext submitted!"),
+
+            State::CompletedRun(_) => format!("✅ FHE run completed!"),
+            State::DownloadedOutput(_) => format!("✅ FHE output downloaded!"),
             State::Decrypted(_) => format!("✅ FHE output decrypted!"),
         };
-        write!(f, "{}", instruction)
+        println!("{}", msg)
+    }
+
+    fn print_instruction(&self) {
+        let msg = match self {
+            State::GotNames(_) => {
+                "Enter `next` with scores for each user to continue. Example: `next 1 2 3`"
+            }
+            State::Decrypted(_) => "Exit with `CTRL-D`",
+            _ => "Enter `next` to continue",
+        };
+        println!("👇 {}", msg)
     }
 }
 
@@ -117,6 +142,8 @@ async fn main() {
     let mut rl = DefaultEditor::new().unwrap();
     let mut state = State::Init(StateInit { name, url });
     println!("{}", state);
+    state.print_status_update();
+    state.print_instruction();
     loop {
         let readline = rl.readline(">> ");
         match readline {
@@ -125,13 +152,16 @@ async fn main() {
                 state = match run(state, line.as_str()).await {
                     Ok(state) => {
                         println!("{}", state);
+                        state.print_status_update();
                         state
                     }
                     Err((err, state)) => {
-                        println!("Error: {:?}", err);
+                        println!("❌ Error: {:?}", err);
+                        println!("Fallback to {}", state);
                         state
                     }
                 };
+                state.print_instruction();
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
