@@ -6,7 +6,7 @@ use crate::types::{
     RegisteredUser, ServerResponse, ServerStatus, ServerStorage, UserList, UserStatus, UserStorage,
     Users,
 };
-use crate::{DecryptionShare, Seed, UserId, TOTAL_USERS};
+use crate::{DecryptionShare, Seed, UserId};
 use rand::{thread_rng, RngCore};
 
 use rocket::{get, post, routes};
@@ -27,6 +27,7 @@ async fn register(
     name: &str,
     users: Users<'_>,
     status: &State<MutexServerStatus>,
+    ss: &State<MutexServerStorage>,
 ) -> Result<Json<RegisteredUser>, Json<ServerResponse>> {
     let s = status.lock().await;
     if !matches!(*s, ServerStatus::ReadyForJoining) {
@@ -36,6 +37,8 @@ async fn register(
     let user_id = users.len();
     let user = RegisteredUser::new(user_id, name);
     users.push(user.clone());
+    let mut ss = ss.lock().await;
+    ss.users.push(UserStorage::Empty);
     Ok(Json(user))
 }
 
@@ -68,26 +71,31 @@ async fn submit(
     users: Users<'_>,
     status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
-) -> Json<ServerResponse> {
-    match *s {
-        ServerStatus::ReadyForJoining => *s = ServerStatus::ReadyForInputs,
-        ServerStatus::ReadyForInputs => todo!(),
-        ServerStatus::ReadyForRunning => todo!(),
-        ServerStatus::RunningFhe => todo!(),
-        ServerStatus::CompletedFhe => todo!(),
-    };
+) -> Result<Json<ServerResponse>, Json<ServerResponse>> {
+    let s = status.lock().await;
+    if !matches!(*s, ServerStatus::ReadyForInputs) {
+        return Err(Json(ServerResponse::err_not_ready_for_input(&s)));
+    }
+    drop(s);
 
     let user_id = submission.0.user_id;
 
     let mut users = users.lock().await;
     if users.len() <= user_id {
-        return Json(ServerResponse::err_unregistered_user(user_id));
+        return Err(Json(ServerResponse::err_unregistered_user(user_id)));
     }
     let mut ss = ss.lock().await;
     ss.users[user_id] = UserStorage::CipherSks(submission.0.cipher_text, submission.0.sks);
-
     users[user_id].status = UserStatus::CipherSubmitted;
-    Json(ServerResponse::ok_user(user_id))
+
+    if users
+        .iter()
+        .all(|user| matches!(user.status, UserStatus::CipherSubmitted))
+    {
+        *status.lock().await = ServerStatus::ReadyForRunning;
+    }
+
+    Ok(Json(ServerResponse::ok_user(user_id)))
 }
 
 /// The admin runs the fhe computation
@@ -125,7 +133,7 @@ async fn run(
             ciphers.push((cipher.clone(), user.to_owned()));
             ss.users[user_id] = UserStorage::DecryptionShare(None);
         } else {
-            *status.lock().await = ServerStatus::ReadyForRunning;
+            *status.lock().await = ServerStatus::ReadyForInputs;
             return Json(ServerResponse::err_missing_submission(user_id));
         }
     }
@@ -144,11 +152,11 @@ async fn run(
 async fn get_fhe_output(
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<Vec<FheUint8>>, Json<ServerResponse>> {
-    let ss: tokio::sync::MutexGuard<ServerStorage> = ss.lock().await;
-    if ss.fhe_outputs.is_empty() {
+    let fhe_outputs = &ss.lock().await.fhe_outputs;
+    if fhe_outputs.is_empty() {
         Err(Json(ServerResponse::err_output_not_ready()))
     } else {
-        Ok(Json(ss.fhe_outputs.clone()))
+        Ok(Json(fhe_outputs.to_vec()))
     }
 }
 
