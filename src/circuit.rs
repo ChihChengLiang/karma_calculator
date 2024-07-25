@@ -50,7 +50,7 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
 
         let total = ciphers[my_id].key_switch(my_id).extract_at(total_users);
 
-        let ct_out = time!(|| sum_fhe_dyn(&my_scores_from_others, &total), "FHE Sum");
+        let ct_out = time!(|| sum_fhe_dyn(my_scores_from_others, &total), "FHE Sum");
         outs.push(ct_out)
     }
     outs

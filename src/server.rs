@@ -84,7 +84,7 @@ async fn submit(
         return Err(Error::UnregisteredUser { user_id }.into());
     }
     let mut ss = ss.lock().await;
-    ss.users[user_id] = UserStorage::CipherSks(cipher_text, sks);
+    ss.users[user_id] = UserStorage::CipherSks(cipher_text, Box::new(sks));
     users[user_id].status = UserStatus::CipherSubmitted;
 
     if users

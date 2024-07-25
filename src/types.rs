@@ -126,7 +126,7 @@ impl ServerStorage {
 pub(crate) enum UserStorage {
     #[default]
     Empty,
-    CipherSks(Cipher, ServerKeyShare),
+    CipherSks(Cipher, Box<ServerKeyShare>),
     DecryptionShare(Option<Vec<DecryptionShare>>),
 }
 

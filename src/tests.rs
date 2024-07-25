@@ -149,7 +149,7 @@ impl User {
 impl WebClient {
     pub(crate) async fn new_test(rocket: Rocket<Build>) -> Result<Self, Error> {
         let client = rocket::local::asynchronous::Client::tracked(rocket).await?;
-        Ok(Self::Test(client))
+        Ok(Self::Test(Box::new(client)))
     }
 }
 

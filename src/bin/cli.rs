@@ -11,7 +11,6 @@ use rustyline::{error::ReadlineError, DefaultEditor};
 use phantom_zone::{
     gen_client_key, gen_server_key_share, ClientKey, Encryptor, FheUint8, MultiPartyDecryptor,
 };
-use tokio;
 
 use clap::Parser;
 
@@ -54,12 +53,12 @@ impl State {
             State::Init(StateInit { name, url }) => {
                 format!("Hi {name}, we just connected to server {url}.")
             }
-            State::Setup(StateSetup { .. }) => format!("✅ Setup completed!"),
-            State::ConcludedRegistration(_) => format!("✅ Users' names acquired!"),
-            State::EncryptedInput(_) => format!("✅ Ciphertext submitted!"),
-            State::CompletedRun(_) => format!("✅ FHE run completed!"),
-            State::DownloadedOutput(_) => format!("✅ FHE output downloaded!"),
-            State::Decrypted(_) => format!("✅ FHE output decrypted!"),
+            State::Setup(StateSetup { .. }) => "✅ Setup completed!".to_string(),
+            State::ConcludedRegistration(_) => "✅ Users' names acquired!".to_string(),
+            State::EncryptedInput(_) => "✅ Ciphertext submitted!".to_string(),
+            State::CompletedRun(_) => "✅ FHE run completed!".to_string(),
+            State::DownloadedOutput(_) => "✅ FHE output downloaded!".to_string(),
+            State::Decrypted(_) => "✅ FHE output decrypted!".to_string(),
         };
         println!("{}", msg)
     }
@@ -177,7 +176,7 @@ async fn main() {
     }
 }
 
-async fn cmd_setup(name: &String, url: &String) -> Result<(ClientKey, usize, WebClient), Error> {
+async fn cmd_setup(name: &str, url: &str) -> Result<(ClientKey, usize, WebClient), Error> {
     let client = WebClient::new(url);
     let seed = client.get_seed().await?;
     println!(
@@ -282,10 +281,10 @@ async fn cmd_download_output(
 
 async fn cmd_download_shares(
     client: &WebClient,
-    names: &Vec<String>,
+    names: &[String],
     ck: &ClientKey,
     shares: &mut HashMap<(usize, usize), Vec<u64>>,
-    fhe_out: &Vec<FheUint8>,
+    fhe_out: &[FheUint8],
     scores: &[u8],
 ) -> Result<Vec<u8>, Error> {
     let total_users = names.len();
@@ -319,7 +318,7 @@ async fn cmd_download_shares(
 
 async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
     let terms: Vec<&str> = line.split_whitespace().collect();
-    if terms.len() == 0 {
+    if terms.is_empty() {
         return Ok(state);
     }
     let cmd = &terms[0];

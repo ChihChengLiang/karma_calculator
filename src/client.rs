@@ -16,7 +16,7 @@ pub enum WebClient {
         url: String,
         client: reqwest::Client,
     },
-    Test(rocket::local::asynchronous::Client),
+    Test(Box<rocket::local::asynchronous::Client>),
 }
 
 impl WebClient {
@@ -145,7 +145,7 @@ impl WebClient {
     pub async fn submit_decryption_shares(
         &self,
         user_id: usize,
-        decryption_shares: &Vec<DecryptionShare>,
+        decryption_shares: &[DecryptionShare],
     ) -> Result<UserId, Error> {
         let submission = DecryptionShareSubmission {
             user_id,
@@ -170,7 +170,7 @@ async fn handle_response_prod<T: Send + for<'de> Deserialize<'de> + 'static>(
 ) -> Result<T, Error> {
     match response.status().as_u16() {
         200 => Ok(response.json::<T>().await?),
-        404 | 500 | _ => {
+        _ => {
             let err = response.text().await?;
             bail!("Server responded error: {:?}", err)
         }
@@ -185,7 +185,7 @@ async fn handle_response_test<T: Send + for<'de> Deserialize<'de> + 'static>(
             .into_json::<T>()
             .await
             .ok_or(anyhow!("Can't parse response output")),
-        404 | 500 | _ => {
+        _ => {
             let err = response
                 .into_string()
                 .await
