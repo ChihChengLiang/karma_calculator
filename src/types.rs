@@ -57,6 +57,13 @@ impl ServerResponse {
         ))
     }
 
+    pub(crate) fn err_already_concluded(status: &ServerStatus) -> Self {
+        Self::err(&format!(
+            "Registration already concluded, status: {:?}",
+            status
+        ))
+    }
+
     pub(crate) fn err_not_ready_for_run(status: &ServerStatus) -> Self {
         Self::err(&format!("Not ready for computation, status: {:?}", status))
     }
@@ -84,7 +91,10 @@ impl ServerResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub enum ServerStatus {
+    /// Users are allowed to join the computation
     ReadyForJoining,
+    /// The number of user is determined now.
+    /// We can now accept ciphertexts, which depends on the number of users.
     ReadyForInputs,
     ReadyForRunning,
     RunningFhe,
@@ -105,7 +115,7 @@ impl ServerStorage {
     pub(crate) fn new(seed: Seed) -> Self {
         Self {
             seed,
-            users: vec![UserStorage::Empty, UserStorage::Empty, UserStorage::Empty],
+            users: vec![],
             fhe_outputs: Default::default(),
         }
     }
