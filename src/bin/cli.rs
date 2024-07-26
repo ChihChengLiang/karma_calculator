@@ -66,8 +66,15 @@ impl State {
     fn print_instruction(&self) {
         let msg = match self {
             State::Setup(_) => "Enter `conclude` to end registration or `next` to proceed",
-            State::ConcludedRegistration(_) => {
-                "Enter `next` with scores for each user to continue. Example: `next 1 2 3`"
+            State::ConcludedRegistration(ConcludedRegistration { names, .. }) => {
+                let total_users = names.len();
+                &format!(
+                    "Enter `next` with scores for each user to continue. Example: `next {}`",
+                    (0..total_users)
+                        .map(|n| n.to_string())
+                        .collect::<Vec<String>>()
+                        .join(" ")
+                )
             }
             State::Decrypted(_) => "Exit with `CTRL-D`",
             _ => "Enter `next` to continue",
