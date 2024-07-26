@@ -236,6 +236,11 @@ async fn cmd_score_encrypt(
         scores.len(),
         total_users
     );
+    ensure!(
+        scores.iter().all(|&x| x <= 127u8),
+        "All scores should be less or equal than 127. Scores: {:#?}",
+        scores,
+    );
     let total = scores.iter().sum();
     for (name, score) in zip(names, scores.iter()) {
         println!("Give {name} {score} karma");
