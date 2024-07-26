@@ -3,12 +3,12 @@ use crate::types::{
     RegisteredUser, Seed, ServerKeyShare, UserId,
 };
 use anyhow::{anyhow, bail, Error};
-use reqwest::{
-    self,
-    header::{HeaderMap, HeaderValue, CONTENT_TYPE},
-    Client,
+use indicatif::ProgressBar;
+use reqwest::{self, header::CONTENT_TYPE, Client};
+use rocket::{
+    futures::{pin_mut, StreamExt},
+    serde::msgpack,
 };
-use rocket::serde::msgpack;
 use serde::{Deserialize, Serialize};
 
 pub enum WebClient {
@@ -87,15 +87,35 @@ impl WebClient {
     ) -> Result<T, Error> {
         match self {
             WebClient::Prod { client, .. } => {
+                // let body = msgpack::to_compact_vec(body)?.chunks(64 * 2014);
+                let body = msgpack::to_compact_vec(body)?;
+                let body = body;
+
+                // let mut stream = ReaderStream::new(body.as_slice());
+                let total_size = body.len() as u64;
+                let bar = ProgressBar::new(total_size);
+                let mut uploaded = 0;
+                let async_stream = async_stream::stream! {
+                    for chunk in body.chunks(1024) {
+                        uploaded += chunk.len() as u64;
+                        uploaded = uploaded.min(total_size);
+                        bar.set_position(uploaded);
+                        if uploaded >= total_size {
+                            bar.finish();
+                        }
+                        yield Ok::<&[u8], Error>(chunk);
+                    }
+
+                };
+                pin_mut!(async_stream);
+
                 let response = client
                     .post(self.path(path))
-                    .headers(HeaderMap::from_iter([(
-                        CONTENT_TYPE,
-                        HeaderValue::from_static("application/msgpack"),
-                    )]))
-                    .body(msgpack::to_compact_vec(body)?)
+                    .header(CONTENT_TYPE, "application/msgpack")
+                    .body(reqwest::Body::wrap_stream(async_stream))
                     .send()
                     .await?;
+
                 handle_response_prod(response).await
             }
             WebClient::Test(client) => {
