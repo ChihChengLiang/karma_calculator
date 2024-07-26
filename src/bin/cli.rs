@@ -43,7 +43,7 @@ impl Display for State {
             State::DownloadedOutput(_) => "Downloaded Output",
             State::Decrypted(_) => "Decrypted",
         };
-        write!(f, "<< {} >>", label)
+        write!(f, "{{{{ {} }}}}", label)
     }
 }
 
