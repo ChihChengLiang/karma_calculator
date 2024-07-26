@@ -1,4 +1,5 @@
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, ParameterSelector};
+use tokio::task;
 
 use crate::circuit::{derive_server_key, evaluate_circuit};
 use crate::types::{
@@ -138,11 +139,15 @@ async fn run(
             return Err(Error::CipherNotFound { user_id }.into());
         }
     }
-    // Long running, global variable change
-    derive_server_key(&server_key_shares);
 
-    // Long running
-    ss.fhe_outputs = evaluate_circuit(&ciphers);
+    ss.fhe_outputs = task::spawn_blocking(move || {
+        // Long running, global variable change
+        derive_server_key(&server_key_shares);
+        // Long running
+        evaluate_circuit(&ciphers)
+    })
+    .await
+    .map_err(|err| ErrorResponse::ServerError(err.to_string()))?;
 
     status.lock().await.transit(ServerStatus::CompletedFhe);
 
