@@ -5,11 +5,11 @@ use crate::types::{
 use anyhow::{anyhow, bail, Error};
 use indicatif::ProgressBar;
 use reqwest::{self, header::CONTENT_TYPE, Client};
-use rocket::{
-    futures::{pin_mut, StreamExt},
-    serde::msgpack,
-};
+use rocket::{futures::StreamExt, serde::msgpack};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use tempfile::tempfile;
+use tokio_util::io::ReaderStream;
 
 pub enum WebClient {
     Prod {
@@ -89,25 +89,29 @@ impl WebClient {
             WebClient::Prod { client, .. } => {
                 // let body = msgpack::to_compact_vec(body)?.chunks(64 * 2014);
                 let body = msgpack::to_compact_vec(body)?;
-                let body = body;
+                let mut file = tempfile()?;
+                file.write_all(&body)?;
+                let file = tokio::fs::File::from(file);
 
                 // let mut stream = ReaderStream::new(body.as_slice());
                 let total_size = body.len() as u64;
                 let bar = ProgressBar::new(total_size);
                 let mut uploaded = 0;
+                let mut reader_stream = ReaderStream::new(file);
                 let async_stream = async_stream::stream! {
-                    for chunk in body.chunks(1024) {
-                        uploaded += chunk.len() as u64;
-                        uploaded = uploaded.min(total_size);
-                        bar.set_position(uploaded);
-                        if uploaded >= total_size {
-                            bar.finish();
-                        }
-                        yield Ok::<&[u8], Error>(chunk);
-                    }
+                    while let Some(chunk) = reader_stream.next().await {
+                        if let Ok(chunk) = &chunk {
+                            uploaded += chunk.len() as u64;
+                            uploaded = uploaded.min(total_size);
+                            bar.set_position(uploaded);
+                            if uploaded >= total_size {
+                                bar.finish();
+                            }
 
+                        }
+                        yield chunk;
+                    }
                 };
-                pin_mut!(async_stream);
 
                 let response = client
                     .post(self.path(path))

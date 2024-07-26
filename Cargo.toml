@@ -26,3 +26,4 @@ thiserror = { version = "1.0.63" }
 async-stream = { version = "*" }
 indicatif = "*"
 tokio-util ={ version = "*", features = ["io"]}
+tempfile = "*"
