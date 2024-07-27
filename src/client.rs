@@ -7,7 +7,7 @@ use indicatif::ProgressBar;
 use reqwest::{self, header::CONTENT_TYPE, Client};
 use rocket::{futures::StreamExt, serde::msgpack};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::{io::Write, os::unix::fs::MetadataExt};
 use tempfile::tempfile;
 use tokio_util::io::ReaderStream;
 
@@ -94,7 +94,8 @@ impl WebClient {
                 let file = tokio::fs::File::from(file);
 
                 // let mut stream = ReaderStream::new(body.as_slice());
-                let total_size = body.len() as u64;
+                let total_size = file.metadata().await?.size();
+                println!("total size {}", total_size);
                 let bar = ProgressBar::new(total_size);
                 let mut uploaded = 0;
                 let mut reader_stream = ReaderStream::new(file);

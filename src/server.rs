@@ -73,7 +73,6 @@ async fn submit(
     {
         status.lock().await.ensure(ServerStatus::ReadyForInputs)?;
     }
-
     let CipherSubmission {
         user_id,
         cipher_text,
