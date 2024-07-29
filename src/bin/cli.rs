@@ -50,8 +50,8 @@ impl Display for State {
 impl State {
     fn print_status_update(&self) {
         let msg = match self {
-            State::Init(StateInit { name, url }) => {
-                format!("Hi {name}, we just connected to server {url}.")
+            State::Init(StateInit { name, client }) => {
+                format!("Hi {}, we just connected to server {}.", name, client.url())
             }
             State::Setup(StateSetup { .. }) => "✅ Setup completed!".to_string(),
             State::ConcludedRegistration(_) => "✅ Users' names acquired!".to_string(),
@@ -85,7 +85,7 @@ impl State {
 
 struct StateInit {
     name: String,
-    url: String,
+    client: WebClient,
 }
 
 struct StateSetup {
@@ -145,7 +145,8 @@ async fn main() {
     let url: String = cli.url;
 
     let mut rl = DefaultEditor::new().unwrap();
-    let mut state = State::Init(StateInit { name, url });
+    let client = WebClient::new(&url);
+    let mut state = State::Init(StateInit { name, client });
     println!("{}", state);
     state.print_status_update();
     state.print_instruction();
@@ -184,8 +185,7 @@ async fn main() {
     }
 }
 
-async fn cmd_setup(name: &str, url: &str) -> Result<(ClientKey, usize, WebClient), Error> {
-    let client = WebClient::new(url);
+async fn cmd_setup(name: &str, client: &WebClient) -> Result<(ClientKey, usize), Error> {
     let seed = client.get_seed().await?;
     println!(
         "Acquired seed for commen reference string (CRS) 0x{}",
@@ -197,7 +197,7 @@ async fn cmd_setup(name: &str, url: &str) -> Result<(ClientKey, usize, WebClient
     let ck = gen_client_key();
     let user = client.register(name).await?;
     println!("Hi {}, you are registered with ID: {}", user.name, user.id);
-    Ok((ck, user.id, client))
+    Ok((ck, user.id))
 }
 
 async fn cmd_get_names(client: &WebClient) -> Result<(bool, Vec<String>), Error> {
@@ -338,10 +338,10 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
     let args = &terms[1..];
     if cmd == &"next" {
         match state {
-            State::Init(s) => match cmd_setup(&s.name, &s.url).await {
-                Ok((ck, user_id, client)) => Ok(State::Setup(StateSetup {
+            State::Init(s) => match cmd_setup(&s.name, &s.client).await {
+                Ok((ck, user_id)) => Ok(State::Setup(StateSetup {
                     name: s.name,
-                    client,
+                    client: s.client,
                     ck,
                     user_id,
                 })),
@@ -451,8 +451,8 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
         }
     } else if cmd == &"status" {
         match &state {
-            State::Init(_) => Err((anyhow!("Client not ready yet"), state)),
-            State::Setup(StateSetup { client, .. })
+            State::Init(StateInit { client, .. })
+            | State::Setup(StateSetup { client, .. })
             | State::ConcludedRegistration(ConcludedRegistration { client, .. })
             | State::EncryptedInput(EncryptedInput { client, .. })
             | State::CompletedRun(StateCompletedRun { client, .. })

@@ -30,6 +30,13 @@ impl WebClient {
         }
     }
 
+    pub fn url(&self) -> String {
+        match self {
+            WebClient::Prod { url, .. } => url.to_string(),
+            WebClient::Test(_) => panic!("No url for testing"),
+        }
+    }
+
     fn path(&self, path: &str) -> String {
         match self {
             WebClient::Prod { url, .. } => format!("{}/{}", url, path),
