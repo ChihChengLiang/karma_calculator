@@ -133,6 +133,7 @@ struct StateDownloadedOuput {
 
 struct StateDecrypted {
     names: Vec<String>,
+    client: WebClient,
     scores: Vec<u8>,
     decrypted_output: Vec<u8>,
 }
@@ -412,6 +413,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                 {
                     Ok(decrypted_output) => Ok(State::Decrypted(StateDecrypted {
                         names: s.names,
+                        client: s.client,
                         decrypted_output,
                         scores: s.scores,
                     })),
@@ -420,12 +422,14 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             }
             State::Decrypted(StateDecrypted {
                 names,
+                client,
                 decrypted_output,
                 scores,
             }) => {
                 present_balance(&names, &scores, &decrypted_output);
                 Ok(State::Decrypted(StateDecrypted {
                     names,
+                    client,
                     decrypted_output,
                     scores,
                 }))
@@ -446,24 +450,22 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             _ => Err((anyhow!("Invalid state for command {}", cmd), state)),
         }
     } else if cmd == &"status" {
-        match state {
+        match &state {
             State::Init(_) => Err((anyhow!("Client not ready yet"), state)),
             State::Setup(StateSetup { client, .. })
-            | State::ConcludedRegistration(ConcludedRegistration { client, .. }) => {
-                {
-                    let dashbaord = client
-                        .get_dashboard()
-                        .await
-                        .map_err(|err| Err((err, &state)))?;
-                    dashbaord.print_presentation();
+            | State::ConcludedRegistration(ConcludedRegistration { client, .. })
+            | State::EncryptedInput(EncryptedInput { client, .. })
+            | State::CompletedRun(StateCompletedRun { client, .. })
+            | State::DownloadedOutput(StateDownloadedOuput { client, .. })
+            | State::Decrypted(StateDecrypted { client, .. }) => {
+                match client.get_dashboard().await {
+                    Ok(dashbaord) => {
+                        dashbaord.print_presentation();
+                        Ok(state)
+                    }
+                    Err(err) => Err((err, state)),
                 }
-                Ok(state)
             }
-            State::ConcludedRegistration(_) => todo!(),
-            State::EncryptedInput(_) => todo!(),
-            State::CompletedRun(_) => todo!(),
-            State::DownloadedOutput(_) => todo!(),
-            State::Decrypted(_) => todo!(),
         }
     } else if cmd.starts_with('#') {
         Ok(state)
