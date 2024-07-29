@@ -66,7 +66,7 @@ async fn get_dashboard(users: Users<'_>, status: &State<MutexServerStatus>) -> J
 /// The user submits the ciphertext
 #[post("/submit", data = "<submission>", format = "msgpack")]
 async fn submit(
-    submission: Data<'_>,
+    submission: MsgPack<CipherSubmission>,
     users: Users<'_>,
     status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
@@ -74,25 +74,12 @@ async fn submit(
     {
         status.lock().await.ensure(ServerStatus::ReadyForInputs)?;
     }
-    let bytes = vec![];
-    let stream = submission.open(512.megabytes());
-    stream
-        .stream_precise_to(bytes.clone())
-        .await
-        .map_err(|err| Error::Else {
-            src: "stream.stream_precise_to".to_string(),
-            err: err.to_string(),
-        })?;
 
-    let submission: CipherSubmission = msgpack::from_slice(&bytes).map_err(|err| Error::Else {
-        src: "msgpack::from_slice".to_string(),
-        err: err.to_string(),
-    })?;
     let CipherSubmission {
         user_id,
         cipher_text,
         sks,
-    } = submission;
+    } = submission.0;
 
     let mut users = users.lock().await;
     if users.len() <= user_id {
