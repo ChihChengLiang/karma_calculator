@@ -1,7 +1,3 @@
-use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, ParameterSelector};
-use rocket::data::ToByteUnit;
-use tokio::task;
-
 use crate::circuit::{derive_server_key, evaluate_circuit};
 use crate::types::{
     CipherSubmission, Dashboard, DecryptionShareSubmission, Error, ErrorResponse,
@@ -9,13 +5,13 @@ use crate::types::{
     UserStatus, UserStorage, Users,
 };
 use crate::{DecryptionShare, Seed, UserId};
+use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, ParameterSelector};
 use rand::{thread_rng, RngCore};
-
-use rocket::{get, post, routes, Data};
-use rocket::{Build, Rocket, State};
-
 use rocket::serde::json::Json;
-use rocket::serde::msgpack::{self, MsgPack};
+use rocket::serde::msgpack::MsgPack;
+use rocket::{get, post, routes};
+use rocket::{Build, Rocket, State};
+use tokio::task;
 
 #[get("/param")]
 async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {

@@ -14,37 +14,6 @@ use std::{
 use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
 
-struct ProgressReader {
-    inner: Vec<u8>,
-    progress_bar: ProgressBar,
-    bytes_read: u64,
-    position: usize,
-    chunk_size: usize,
-}
-
-impl AsyncRead for ProgressReader {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<tokio::io::Result<()>> {
-        let start = buf.filled().len();
-
-        let remaining = self.inner.len() - self.position;
-        let to_read = self.chunk_size.min(remaining.min(buf.remaining()));
-        let end = self.position + to_read;
-        buf.put_slice(&self.inner[self.position..end]);
-        self.position = end;
-
-        let end = buf.filled().len();
-        let new_bytes = (end - start) as u64;
-        self.bytes_read += new_bytes;
-        self.progress_bar.set_position(self.bytes_read);
-
-        Poll::Ready(Ok(()))
-    }
-}
-
 pub enum WebClient {
     Prod {
         url: String,
@@ -121,14 +90,13 @@ impl WebClient {
     ) -> Result<T, Error> {
         match self {
             WebClient::Prod { client, .. } => {
-                // let body = msgpack::to_compact_vec(body)?.chunks(64 * 2014);
                 let body = msgpack::to_compact_vec(body)?;
 
                 let total_bytes = body.len() as u64;
                 let bar = ProgressBar::new(total_bytes);
                 bar.set_style(
                     ProgressStyle::with_template(
-                        "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {bytes_per_sec} {msg}",
+                        "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% {bytes_per_sec} {msg}",
                     )
                     .unwrap()
                     .progress_chars("##-"),
@@ -252,5 +220,36 @@ async fn handle_response_test<T: Send + for<'de> Deserialize<'de> + 'static>(
                 .ok_or(anyhow!("Can't parse response output"))?;
             bail!("Server responded error: {:?}", err)
         }
+    }
+}
+
+struct ProgressReader {
+    inner: Vec<u8>,
+    progress_bar: ProgressBar,
+    bytes_read: u64,
+    position: usize,
+    chunk_size: usize,
+}
+
+impl AsyncRead for ProgressReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<tokio::io::Result<()>> {
+        let start = buf.filled().len();
+
+        let remaining = self.inner.len() - self.position;
+        let to_read = self.chunk_size.min(remaining.min(buf.remaining()));
+        let end = self.position + to_read;
+        buf.put_slice(&self.inner[self.position..end]);
+        self.position = end;
+
+        let end = buf.filled().len();
+        let new_bytes = (end - start) as u64;
+        self.bytes_read += new_bytes;
+        self.progress_bar.set_position(self.bytes_read);
+
+        Poll::Ready(Ok(()))
     }
 }
