@@ -5,7 +5,7 @@ use crate::types::{
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::{self, header::CONTENT_TYPE, Client};
-use rocket::serde::msgpack;
+use rocket::{data::ToByteUnit, serde::msgpack};
 use serde::{Deserialize, Serialize};
 use std::{
     pin::Pin,
@@ -93,6 +93,7 @@ impl WebClient {
                 let body = msgpack::to_compact_vec(body)?;
 
                 let total_bytes = body.len() as u64;
+                println!("total size {}", total_bytes.megabytes());
                 let bar = ProgressBar::new(total_bytes);
                 bar.set_style(
                     ProgressStyle::with_template(
@@ -111,8 +112,6 @@ impl WebClient {
                     position: 0,
                     chunk_size: 128,
                 };
-
-                println!("total size {}", total_bytes);
 
                 // Convert the reader to a stream
                 let stream = ReaderStream::new(reader);
