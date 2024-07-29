@@ -445,6 +445,26 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             },
             _ => Err((anyhow!("Invalid state for command {}", cmd), state)),
         }
+    } else if cmd == &"status" {
+        match state {
+            State::Init(_) => Err((anyhow!("Client not ready yet"), state)),
+            State::Setup(StateSetup { client, .. })
+            | State::ConcludedRegistration(ConcludedRegistration { client, .. }) => {
+                {
+                    let dashbaord = client
+                        .get_dashboard()
+                        .await
+                        .map_err(|err| Err((err, &state)))?;
+                    dashbaord.print_presentation();
+                }
+                Ok(state)
+            }
+            State::ConcludedRegistration(_) => todo!(),
+            State::EncryptedInput(_) => todo!(),
+            State::CompletedRun(_) => todo!(),
+            State::DownloadedOutput(_) => todo!(),
+            State::Decrypted(_) => todo!(),
+        }
     } else if cmd.starts_with('#') {
         Ok(state)
     } else {
