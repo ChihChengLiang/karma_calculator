@@ -974,7 +974,6 @@ name = "karma_calculator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-stream",
  "bincode",
  "clap",
  "hex",
@@ -988,7 +987,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tabled",
- "tempfile",
  "thiserror",
  "tokio",
  "tokio-util",
