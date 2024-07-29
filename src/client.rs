@@ -8,8 +8,45 @@ use reqwest::{self, header::CONTENT_TYPE, Client};
 use rocket::{futures::StreamExt, serde::msgpack};
 use serde::{Deserialize, Serialize};
 use std::{io::Write, os::unix::fs::MetadataExt};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tempfile::tempfile;
+use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
+
+struct ProgressReader {
+    inner: Vec<u8>,
+    progress_bar: ProgressBar,
+    total_bytes: u64,
+    bytes_read: u64,
+    position: usize,
+}
+
+impl AsyncRead for ProgressReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<tokio::io::Result<()>> {
+        let start = buf.filled().len();
+        // let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
+
+        let remaining = self.inner.len() - self.position;
+        let to_read = remaining.min(buf.remaining());
+        let end = self.position + to_read;
+        buf.put_slice(&self.inner[self.position..end]);
+        self.position = end;
+
+        let end = buf.filled().len();
+        let new_bytes = (end - start) as u64;
+        self.bytes_read += new_bytes;
+        self.progress_bar.set_position(self.bytes_read);
+
+        Poll::Ready(Ok(()))
+    }
+}
 
 pub enum WebClient {
     Prod {
@@ -89,36 +126,27 @@ impl WebClient {
             WebClient::Prod { client, .. } => {
                 // let body = msgpack::to_compact_vec(body)?.chunks(64 * 2014);
                 let body = msgpack::to_compact_vec(body)?;
-                let mut file = tempfile()?;
-                file.write_all(&body)?;
-                let file = tokio::fs::File::from(file);
 
-                // let mut stream = ReaderStream::new(body.as_slice());
-                let total_size = file.metadata().await?.size();
-                println!("total size {}", total_size);
-                let bar = ProgressBar::new(total_size);
-                let mut uploaded = 0;
-                let mut reader_stream = ReaderStream::new(file);
-                let async_stream = async_stream::stream! {
-                    while let Some(chunk) = reader_stream.next().await {
-                        println!("chunk {:?}", chunk);
-                        if let Ok(chunk) = &chunk {
-                            uploaded += chunk.len() as u64;
-                            uploaded = uploaded.min(total_size);
-                            bar.set_position(uploaded);
-                            if uploaded >= total_size {
-                                bar.finish();
-                            }
-
-                        }
-                        yield chunk;
-                    }
+                let total_bytes = body.len() as u64;
+                let bar = ProgressBar::new(total_bytes);
+                // Create the ProgressReader
+                let reader = ProgressReader {
+                    inner: body,
+                    progress_bar: bar.clone(),
+                    total_bytes,
+                    bytes_read: 0,
+                    position: 0,
                 };
+
+                println!("total size {}", total_bytes);
+
+                // Convert the reader to a stream
+                let stream = ReaderStream::new(reader);
 
                 let response = client
                     .post(self.path(path))
                     .header(CONTENT_TYPE, "application/msgpack")
-                    .body(reqwest::Body::wrap_stream(async_stream))
+                    .body(reqwest::Body::wrap_stream(stream))
                     .send()
                     .await?;
 
