@@ -243,7 +243,7 @@ impl AsyncRead for ProgressReader {
         self.progress_bar.set_position(self.position as u64);
 
         if to_read == 0 {
-            self.progress_bar.finish()
+            self.progress_bar.finish_with_message("Upload complete")
         }
 
         Poll::Ready(Ok(()))
