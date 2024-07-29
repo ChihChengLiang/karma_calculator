@@ -22,6 +22,7 @@ struct ProgressReader {
     total_bytes: u64,
     bytes_read: u64,
     position: usize,
+    chunk_size: usize,
 }
 
 impl AsyncRead for ProgressReader {
@@ -31,10 +32,9 @@ impl AsyncRead for ProgressReader {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<tokio::io::Result<()>> {
         let start = buf.filled().len();
-        // let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
 
         let remaining = self.inner.len() - self.position;
-        let to_read = remaining.min(buf.remaining());
+        let to_read = self.chunk_size.min(remaining.min(buf.remaining()));
         let end = self.position + to_read;
         buf.put_slice(&self.inner[self.position..end]);
         self.position = end;
@@ -136,6 +136,7 @@ impl WebClient {
                     total_bytes,
                     bytes_read: 0,
                     position: 0,
+                    chunk_size: 128,
                 };
 
                 println!("total size {}", total_bytes);
