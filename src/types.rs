@@ -43,6 +43,8 @@ pub(crate) enum Error {
     /// Temporary here
     #[error("Output not ready")]
     OutputNotReady,
+    #[error("else {src}: {err}")]
+    Else { src: String, err: String },
 }
 
 #[derive(Responder)]
@@ -56,7 +58,7 @@ pub(crate) enum ErrorResponse {
 impl From<Error> for ErrorResponse {
     fn from(error: Error) -> Self {
         match error {
-            Error::WrongServerState { .. } | Error::CipherNotFound { .. } => {
+            Error::WrongServerState { .. } | Error::CipherNotFound { .. } | Error::Else { .. } => {
                 ErrorResponse::ServerError(error.to_string())
             }
             Error::DecryptionShareNotFound { .. }

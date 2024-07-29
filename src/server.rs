@@ -1,4 +1,5 @@
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8, ParameterSelector};
+use rocket::data::ToByteUnit;
 use tokio::task;
 
 use crate::circuit::{derive_server_key, evaluate_circuit};
@@ -10,11 +11,11 @@ use crate::types::{
 use crate::{DecryptionShare, Seed, UserId};
 use rand::{thread_rng, RngCore};
 
-use rocket::{get, post, routes};
+use rocket::{get, post, routes, Data};
 use rocket::{Build, Rocket, State};
 
 use rocket::serde::json::Json;
-use rocket::serde::msgpack::MsgPack;
+use rocket::serde::msgpack::{self, MsgPack};
 
 #[get("/param")]
 async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
@@ -65,7 +66,7 @@ async fn get_dashboard(users: Users<'_>, status: &State<MutexServerStatus>) -> J
 /// The user submits the ciphertext
 #[post("/submit", data = "<submission>", format = "msgpack")]
 async fn submit(
-    submission: MsgPack<CipherSubmission>,
+    submission: Data<'_>,
     users: Users<'_>,
     status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
@@ -73,11 +74,25 @@ async fn submit(
     {
         status.lock().await.ensure(ServerStatus::ReadyForInputs)?;
     }
+    let bytes = vec![];
+    let stream = submission.open(512.megabytes());
+    stream
+        .stream_precise_to(bytes.clone())
+        .await
+        .map_err(|err| Error::Else {
+            src: "stream.stream_precise_to".to_string(),
+            err: err.to_string(),
+        })?;
+
+    let submission: CipherSubmission = msgpack::from_slice(&bytes).map_err(|err| Error::Else {
+        src: "msgpack::from_slice".to_string(),
+        err: err.to_string(),
+    })?;
     let CipherSubmission {
         user_id,
         cipher_text,
         sks,
-    } = submission.0;
+    } = submission;
 
     let mut users = users.lock().await;
     if users.len() <= user_id {

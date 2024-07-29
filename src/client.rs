@@ -101,6 +101,7 @@ impl WebClient {
                 let mut reader_stream = ReaderStream::new(file);
                 let async_stream = async_stream::stream! {
                     while let Some(chunk) = reader_stream.next().await {
+                        println!("chunk {:?}", chunk);
                         if let Ok(chunk) = &chunk {
                             uploaded += chunk.len() as u64;
                             uploaded = uploaded.min(total_size);
