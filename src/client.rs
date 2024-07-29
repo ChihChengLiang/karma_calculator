@@ -3,23 +3,20 @@ use crate::types::{
     RegisteredUser, Seed, ServerKeyShare, UserId,
 };
 use anyhow::{anyhow, bail, Error};
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::{self, header::CONTENT_TYPE, Client};
-use rocket::{futures::StreamExt, serde::msgpack};
+use rocket::serde::msgpack;
 use serde::{Deserialize, Serialize};
-use std::{io::Write, os::unix::fs::MetadataExt};
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tempfile::tempfile;
 use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
 
 struct ProgressReader {
     inner: Vec<u8>,
     progress_bar: ProgressBar,
-    total_bytes: u64,
     bytes_read: u64,
     position: usize,
     chunk_size: usize,
@@ -28,7 +25,7 @@ struct ProgressReader {
 impl AsyncRead for ProgressReader {
     fn poll_read(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        _cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<tokio::io::Result<()>> {
         let start = buf.filled().len();
@@ -129,11 +126,19 @@ impl WebClient {
 
                 let total_bytes = body.len() as u64;
                 let bar = ProgressBar::new(total_bytes);
+                bar.set_style(
+                    ProgressStyle::with_template(
+                        "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {bytes_per_sec} {msg}",
+                    )
+                    .unwrap()
+                    .progress_chars("##-"),
+                );
+                bar.set_message("Uploading...");
+
                 // Create the ProgressReader
                 let reader = ProgressReader {
                     inner: body,
                     progress_bar: bar.clone(),
-                    total_bytes,
                     bytes_read: 0,
                     position: 0,
                     chunk_size: 128,
