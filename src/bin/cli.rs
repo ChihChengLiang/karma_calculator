@@ -4,13 +4,14 @@ use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
-use karma_calculator::{setup, DecryptionSharesMap, ServerState, WebClient};
+use karma_calculator::{
+    decrypt_word, encrypt_plain, gen_decryption_shares, setup, Ciphers, DecryptionSharesMap, Score,
+    WebClient, Word,
+};
 
 use rustyline::{error::ReadlineError, DefaultEditor};
 
-use phantom_zone::{
-    gen_client_key, gen_server_key_share, ClientKey, Encryptor, FheUint8, MultiPartyDecryptor,
-};
+use phantom_zone::{gen_client_key, gen_server_key_share, ClientKey};
 
 use clap::Parser;
 
@@ -109,7 +110,7 @@ struct EncryptedInput {
     ck: ClientKey,
     user_id: usize,
     names: Vec<String>,
-    scores: Vec<u8>,
+    scores: Vec<Score>,
 }
 
 struct StateTriggeredRun {
@@ -118,7 +119,7 @@ struct StateTriggeredRun {
     ck: ClientKey,
     user_id: usize,
     names: Vec<String>,
-    scores: Vec<u8>,
+    scores: Vec<Score>,
 }
 
 struct StateDownloadedOuput {
@@ -126,16 +127,16 @@ struct StateDownloadedOuput {
     client: WebClient,
     ck: ClientKey,
     names: Vec<String>,
-    scores: Vec<u8>,
-    fhe_out: Vec<FheUint8>,
+    scores: Vec<Score>,
+    fhe_out: Vec<Word>,
     shares: DecryptionSharesMap,
 }
 
 struct StateDecrypted {
     names: Vec<String>,
     client: WebClient,
-    scores: Vec<u8>,
-    decrypted_output: Vec<u8>,
+    scores: Vec<Score>,
+    decrypted_output: Vec<Score>,
 }
 
 #[tokio::main]
@@ -217,12 +218,12 @@ async fn cmd_score_encrypt(
     user_id: &usize,
     names: &Vec<String>,
     ck: &ClientKey,
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<Score>, Error> {
     let total_users = names.len();
-    let scores: Result<Vec<u8>, Error> = args
+    let scores: Result<Vec<_>, Error> = args
         .iter()
         .map(|s| {
-            s.parse::<u8>()
+            s.parse::<u32>()
                 .map_err(|err| anyhow::format_err!(err.to_string()))
         })
         .collect_vec()
@@ -235,9 +236,11 @@ async fn cmd_score_encrypt(
         scores.len(),
         total_users
     );
+    let max = u32::max_value();
     ensure!(
-        scores.iter().all(|&x| x <= 127u8),
-        "All scores should be less or equal than 127. Scores: {:#?}",
+        scores.iter().all(|&x| x <= max),
+        "All scores should be less or equal than {}. Scores: {:#?}",
+        max,
         scores,
     );
     let total: u8 = scores.iter().sum();
@@ -246,8 +249,15 @@ async fn cmd_score_encrypt(
     }
     println!("I gave out {total} karma");
 
+    let mut plain_text = scores.to_vec();
+    plain_text.push(total);
+
     println!("Encrypting Inputs");
-    let cipher = ck.encrypt(scores.as_slice());
+    let cipher: Ciphers = plain_text
+        .iter()
+        .map(|score| encrypt_plain(ck, *score))
+        .collect_vec();
+
     println!("Generating server key share");
     let sks = gen_server_key_share(*user_id, total_users, ck);
 
@@ -267,7 +277,7 @@ async fn cmd_download_output(
     client: &WebClient,
     user_id: &usize,
     ck: &ClientKey,
-) -> Result<(Vec<FheUint8>, HashMap<(usize, usize), Vec<u64>>), Error> {
+) -> Result<(Vec<Word>, HashMap<(usize, usize), Vec<u64>>), Error> {
     let resp = client.trigger_fhe_run().await?;
     if !matches!(resp, ServerState::CompletedFhe) {
         bail!("FHE is still running")
@@ -280,7 +290,7 @@ async fn cmd_download_output(
     let mut shares = HashMap::new();
     let mut my_decryption_shares = Vec::new();
     for (out_id, out) in fhe_out.iter().enumerate() {
-        let share = ck.gen_decryption_share(out);
+        let share = gen_decryption_shares(ck, out);
         my_decryption_shares.push(share.clone());
         shares.insert((out_id, *user_id), share);
     }
@@ -297,9 +307,9 @@ async fn cmd_download_shares(
     names: &[String],
     ck: &ClientKey,
     shares: &mut HashMap<(usize, usize), Vec<u64>>,
-    fhe_out: &[FheUint8],
-    scores: &[u8],
-) -> Result<Vec<u8>, Error> {
+    fhe_out: &[Word],
+    scores: &[Score],
+) -> Result<Vec<Score>, Error> {
     let total_users = names.len();
     println!("Acquiring decryption shares needed");
     for (output_id, user_id) in (0..total_users).cartesian_product(0..total_users) {
@@ -321,7 +331,7 @@ async fn cmd_download_shares(
                         .to_owned()
                 })
                 .collect_vec();
-            ck.aggregate_decryption_shares(output, &decryption_shares)
+            decrypt_word(ck, output, &decryption_shares)
         })
         .collect_vec();
     println!("Final decrypted output:");
@@ -474,18 +484,18 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
     }
 }
 
-fn present_balance(names: &[String], scores: &[u8], final_balances: &[u8]) {
+fn present_balance(names: &[String], scores: &[Score], final_balances: &[Score]) {
     #[derive(Tabled)]
     struct Row {
         name: String,
-        karma_i_sent: u8,
-        decrypted_karma_balance: i8,
+        karma_i_sent: Score,
+        decrypted_karma_balance: i16,
     }
     let table = zip(zip(names, scores), final_balances)
         .map(|((name, &karma_i_sent), &decrypted_karma_balance)| Row {
             name: name.to_string(),
             karma_i_sent,
-            decrypted_karma_balance: decrypted_karma_balance as i8,
+            decrypted_karma_balance: decrypted_karma_balance as i16,
         })
         .collect_vec();
     println!("{}", Table::new(table).with(Style::ascii_rounded()));

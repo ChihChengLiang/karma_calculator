@@ -1,6 +1,8 @@
+use crate::{karma_rs_fhe_lib::karma_add, types::Word};
 use itertools::Itertools;
 use phantom_zone::{
-    aggregate_server_key_shares, KeySwitchWithId, ParameterSelector, SampleExtractor,
+    aggregate_server_key_shares, KeySwitchWithId, NonInteractiveBatchedFheBools, ParameterSelector,
+    SampleExtractor,
 };
 use rayon::prelude::*;
 
@@ -13,7 +15,7 @@ pub(crate) fn sum_fhe_dyn(input: &[FheUint8]) -> FheUint8 {
     let sum = input
         .par_iter()
         .cloned()
-        .reduce_with(|a, b| &a + &b)
+        .reduce_with(|a, b| karma_add(&a, &b))
         .expect("Not None");
     sum
 }

@@ -1,8 +1,10 @@
 use itertools::Itertools;
+use phantom_zone::NonInteractiveSeededFheBools;
 use phantom_zone::{
     evaluator::NonInteractiveMultiPartyCrs,
     keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare, parameters::BoolParameters,
-    SeededBatchedFheUint8,
+    Encryptor, FheBool, KeySwitchWithId, MultiPartyDecryptor, NonInteractiveBatchedFheBools,
+    SampleExtractor,
 };
 use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
@@ -21,11 +23,58 @@ pub type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKey
     BoolParameters<u64>,
     NonInteractiveMultiPartyCrs<Seed>,
 >;
-pub type Cipher = SeededBatchedFheUint8<Vec<u64>, Seed>;
+/// number of users + total
+pub type Ciphers = Vec<EncryptedWord>;
+pub type Score = PlainWord;
+pub type Word = KeySwitchedWord;
+/// Decryption share for a word from one user.
 pub type DecryptionShare = Vec<u64>;
 pub type ClientKey = phantom_zone::ClientKey;
 pub type UserId = usize;
-pub type FheUint8 = phantom_zone::FheUint8;
+
+pub(crate) type MutexServerStatus = Mutex<ServerStatus>;
+
+pub type PlainWord = u32;
+pub type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
+pub type UnseededWord = NonInteractiveBatchedFheBools<Vec<Vec<u64>>>;
+pub type KeySwitchedWord = Vec<FheBool>;
+
+pub fn encrypt_plain(ck: &ClientKey, plain: PlainWord) -> EncryptedWord {
+    let plain = u64_to_binary::<32>(plain as u64);
+    let cipher = ck.encrypt(plain.as_slice());
+    return cipher;
+}
+
+pub fn unseed_cipher(cipher: &EncryptedWord) -> UnseededWord {
+    let unseeded = cipher.unseed::<Vec<Vec<u64>>>();
+    unseeded
+}
+
+pub fn switch_key(cipher: &UnseededWord, other: UserId) -> KeySwitchedWord {
+    let switched = cipher.key_switch(other).extract_all();
+    switched
+}
+
+pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &KeySwitchedWord) -> DecryptionShare {
+    let dec_shares = fhe_output
+        .iter()
+        .map(|out_bit| ck.gen_decryption_share(out_bit))
+        .collect_vec();
+    dec_shares
+}
+
+pub fn decrypt_word(
+    ck: &ClientKey,
+    fhe_output: &KeySwitchedWord,
+    shares: &[DecryptionShare],
+) -> PlainWord {
+    let decrypted_bits = fhe_output
+        .iter()
+        .zip(shares)
+        .map(|(out_bit, share)| ck.aggregate_decryption_shares(out_bit, share))
+        .collect_vec();
+    recover(&decrypted_bits)
+}
 
 #[derive(Debug, Error)]
 pub(crate) enum Error {
@@ -104,7 +153,7 @@ pub(crate) struct ServerStorage {
     pub(crate) seed: Seed,
     pub(crate) state: ServerState,
     pub(crate) users: Vec<UserRecord>,
-    pub(crate) fhe_outputs: Vec<FheUint8>,
+    pub(crate) fhe_outputs: Vec<Word>,
 }
 
 impl ServerStorage {
@@ -180,12 +229,12 @@ pub(crate) struct UserRecord {
 #[derive(Debug, Clone)]
 pub(crate) enum UserStorage {
     Empty,
-    CipherSks(Cipher, Box<ServerKeyShare>),
+    CipherSks(Ciphers, Box<ServerKeyShare>),
     DecryptionShare(Option<Vec<DecryptionShare>>),
 }
 
 impl UserStorage {
-    pub(crate) fn get_cipher_sks(&self) -> Option<(&Cipher, &ServerKeyShare)> {
+    pub(crate) fn get_cipher_sks(&self) -> Option<(&Ciphers, &ServerKeyShare)> {
         match self {
             Self::CipherSks(cipher, sks) => Some((cipher, sks)),
             _ => None,
@@ -209,7 +258,7 @@ pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 #[serde(crate = "rocket::serde")]
 pub(crate) struct CipherSubmission {
     pub(crate) user_id: UserId,
-    pub(crate) cipher_text: Cipher,
+    pub(crate) cipher_text: Ciphers,
     pub(crate) sks: ServerKeyShare,
 }
 
@@ -219,4 +268,23 @@ pub(crate) struct DecryptionShareSubmission {
     pub(crate) user_id: UserId,
     /// The user sends decryption share Vec<u64> for each FheUint8.
     pub(crate) decryption_shares: Vec<DecryptionShare>,
+}
+
+pub fn u64_to_binary<const N: usize>(v: u64) -> [bool; N] {
+    assert!((v as u128) < 2u128.pow(N as u32));
+    let mut result = [false; N];
+    for i in 0..N {
+        if (v >> i) & 1 == 1 {
+            result[i] = true;
+        }
+    }
+    result
+}
+
+pub fn recover(bits: &[bool]) -> u32 {
+    let mut out: u32 = 0;
+    for (i, bit) in bits.iter().enumerate() {
+        out &= (*bit as u32) << i;
+    }
+    out
 }

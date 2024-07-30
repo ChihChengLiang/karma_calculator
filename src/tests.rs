@@ -6,8 +6,9 @@ use phantom_zone::{
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::sleep;
-use types::ServerState;
+use types::{Score, ServerState};
 
+use crate::types::u64_to_binary;
 use crate::*;
 use anyhow::Error;
 use futures::future::join_all;
@@ -29,12 +30,12 @@ struct User {
     id: Option<UserId>,
     total_users: Option<usize>,
     // step 2: assign scores
-    scores: Option<Vec<u8>>,
+    scores: Option<Vec<Score>>,
     // step 3: gen key and cipher
     server_key: Option<ServerKeyShare>,
-    cipher: Option<Cipher>,
+    cipher: Option<Ciphers>,
     // step 4: get FHE output
-    fhe_out: Option<Vec<FheUint8>>,
+    fhe_out: Option<Vec<Word>>,
     // step 5: derive decryption shares
     decryption_shares: DecryptionSharesMap,
 }
@@ -81,7 +82,8 @@ impl User {
     fn gen_cipher(&mut self) -> &mut Self {
         let scores = self.scores.as_ref().unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
-        let cipher: Cipher = ck.encrypt(scores.as_slice());
+
+        let cipher = scores.iter().map(|s| encrypt_plain(ck, *s)).collect_vec();
         self.cipher = Some(cipher);
         self
     }
@@ -96,7 +98,7 @@ impl User {
         self
     }
 
-    fn set_fhe_out(&mut self, fhe_out: Vec<FheUint8>) -> &mut Self {
+    fn set_fhe_out(&mut self, fhe_out: Vec<Word>) -> &mut Self {
         self.fhe_out = Some(fhe_out);
         self
     }
@@ -106,7 +108,7 @@ impl User {
         let fhe_out = self.fhe_out.as_ref().expect("exists");
         let my_id = self.id.expect("exists");
         for (output_id, out) in fhe_out.iter().enumerate() {
-            let my_decryption_share = ck.gen_decryption_share(out);
+            let my_decryption_share = gen_decryption_shares(ck, out);
             self.decryption_shares
                 .insert((output_id, my_id), my_decryption_share);
         }
@@ -126,7 +128,7 @@ impl User {
             .collect_vec()
     }
 
-    fn decrypt_everything(&self) -> Vec<u8> {
+    fn decrypt_everything(&self) -> Vec<Score> {
         let total_users = self.total_users.expect("exist");
         let ck = self.ck.as_ref().expect("already exists");
         let fhe_out = self.fhe_out.as_ref().expect("exists");
@@ -143,7 +145,7 @@ impl User {
                             .to_owned()
                     })
                     .collect_vec();
-                ck.aggregate_decryption_shares(output, &decryption_shares)
+                decrypt_word(ck, output, &decryption_shares)
             })
             .collect_vec()
     }
@@ -189,7 +191,7 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
 
     // Assign scores
     for user in users.iter_mut() {
-        let scores: Vec<u8> = (0u8..total_users.try_into().unwrap()).collect_vec();
+        let scores: Vec<Score> = (0..total_users.try_into().unwrap()).collect_vec();
         user.assign_scores(&scores);
     }
 
@@ -282,5 +284,79 @@ async fn full_flow() {
     // Need to fix the global variable thing to allow multiple flow run
     // run_flow_with_n_users(2).await.unwrap();
     // run_flow_with_n_users(3).await.unwrap();
-    run_flow_with_n_users(4).await.unwrap();
+    run_flow_with_n_users(2).await.unwrap();
+}
+
+#[test]
+fn test_circuit() {
+    use karma_rs_fhe_lib::karma_add;
+    use phantom_zone::{
+        aggregate_server_key_shares, set_common_reference_seed, set_parameter_set, KeySwitchWithId,
+        ParameterSelector, SampleExtractor,
+    };
+    use rand::{thread_rng, RngCore};
+
+    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
+    // set application's common reference seed
+    let mut seed = [0u8; 32];
+    thread_rng().fill_bytes(&mut seed);
+    set_common_reference_seed(seed);
+
+    // let n_users = 100;
+    let no_of_parties = 2;
+
+    // Clide side //
+
+    // Generate client keys
+    let cks = (0..no_of_parties).map(|_| gen_client_key()).collect_vec();
+    let ck_a = &cks[0];
+    let ck_b = &cks[1];
+
+    let input_a_int = 0x12;
+    let input_b_int = 0x34;
+
+    let input_a = u64_to_binary::<32>(input_a_int);
+    let input_b = u64_to_binary::<32>(input_b_int);
+
+    let now = std::time::Instant::now();
+    let server_key_shares = cks
+        .iter()
+        .enumerate()
+        .map(|(id, k)| gen_server_key_share(id, no_of_parties, k))
+        .collect_vec();
+    println!("Clients server key share gen time: {:?}", now.elapsed());
+
+    // aggregate server shares and generate the server key
+    let now = std::time::Instant::now();
+    let server_key = aggregate_server_key_shares(&server_key_shares);
+    server_key.set_server_key();
+    println!("Server key gen time: {:?}", now.elapsed());
+
+    // Server extracts the cyphertexts (1 cyphertext per bit)
+    let now = std::time::Instant::now();
+    let cts_a = ck_a.encrypt(input_a.as_slice());
+    let cts_b = ck_b.encrypt(input_b.as_slice());
+    println!("Encryption time: {:?}", now.elapsed());
+
+    let now = std::time::Instant::now();
+    let cts_a = cts_a.unseed::<Vec<Vec<u64>>>().key_switch(0).extract_all();
+    let cts_b = cts_b.unseed::<Vec<Vec<u64>>>().key_switch(1).extract_all();
+    println!("Key switch time: {:?}", now.elapsed());
+
+    let now = std::time::Instant::now();
+    let cts_out = karma_add(&cts_a, &cts_b);
+    println!("FHE circuit evaluation time: {:?}", now.elapsed());
+
+    let dec_shares = cts_out
+        .iter()
+        .map(|ct| cks.iter().map(|k| k.gen_decryption_share(ct)).collect_vec())
+        .collect_vec();
+
+    let out_back = cts_out
+        .iter()
+        .zip(dec_shares.iter())
+        .map(|(ct, dec_shares)| cks[0].aggregate_decryption_shares(ct, dec_shares))
+        .collect_vec();
+
+    println!("Result: {:?}", out_back);
 }

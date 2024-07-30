@@ -1,7 +1,10 @@
-use crate::dashboard::{Dashboard, RegisteredUser};
-use crate::types::{
-    Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, Seed,
-    ServerKeyShare, ServerState, UserId,
+use crate::{
+    dashboard::{Dashboard, RegisteredUser},
+    types::{
+        CipherSubmission, Ciphers, Dashboard, DecryptionShare, DecryptionShareSubmission,
+        RegisteredUser, Seed, ServerKeyShare, ServerState, UserId,
+    },
+    Word,
 };
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -135,7 +138,7 @@ impl WebClient {
     pub async fn submit_cipher(
         &self,
         user_id: UserId,
-        cipher_text: &Cipher,
+        cipher_text: &Ciphers,
         sks: &ServerKeyShare,
     ) -> Result<UserId, Error> {
         let submission = CipherSubmission {
@@ -150,7 +153,7 @@ impl WebClient {
         self.post_nobody("/run").await
     }
 
-    pub async fn get_fhe_output(&self) -> Result<Vec<FheUint8>, Error> {
+    pub async fn get_fhe_output(&self) -> Result<Vec<Word>, Error> {
         self.get("/fhe_output").await
     }
 

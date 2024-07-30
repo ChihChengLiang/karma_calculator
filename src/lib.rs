@@ -1,6 +1,7 @@
 mod circuit;
 mod client;
 mod dashboard;
+mod karma_rs_fhe_lib;
 mod server;
 mod types;
 
@@ -8,8 +9,8 @@ pub use client::WebClient;
 pub use server::{rocket, setup};
 
 pub use types::{
-    Cipher, ClientKey, DecryptionShare, DecryptionSharesMap, FheUint8, Seed, ServerKeyShare,
-    ServerState, UserId,
+    recover, u64_to_binary, Ciphers, ClientKey, DecryptionShare, DecryptionSharesMap,
+    RegisteredUser, Score, Seed, ServerKeyShare, UserId, Word, *,
 };
 
 #[cfg(test)]

@@ -2,10 +2,10 @@ use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
     CipherSubmission, DecryptionShareSubmission, Error, ErrorResponse, MutexServerStorage,
-    ServerState, ServerStorage, UserStorage,
+    ServerState, ServerStorage, UserStorage, Word,
 };
 use crate::{time, DecryptionShare, Seed, UserId};
-use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8};
+use phantom_zone::{set_common_reference_seed, set_parameter_set};
 use rand::{thread_rng, RngCore};
 use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
@@ -128,9 +128,7 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerState>, ErrorR
 }
 
 #[get("/fhe_output")]
-async fn get_fhe_output(
-    ss: &State<MutexServerStorage>,
-) -> Result<Json<Vec<FheUint8>>, ErrorResponse> {
+async fn get_fhe_output(ss: &State<MutexServerStorage>) -> Result<Json<Vec<Word>>, ErrorResponse> {
     let ss = ss.lock().await;
     ss.ensure(ServerState::CompletedFhe)?;
     Ok(Json(ss.fhe_outputs.to_vec()))
