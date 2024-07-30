@@ -981,6 +981,7 @@ dependencies = [
  "itertools 0.13.0",
  "phantom-zone",
  "rand",
+ "rayon",
  "reqwest",
  "rocket",
  "rustyline",

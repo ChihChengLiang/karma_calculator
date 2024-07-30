@@ -3,6 +3,7 @@ use phantom_zone::{
     aggregate_server_key_shares, set_parameter_set, KeySwitchWithId, ParameterSelector,
     SampleExtractor,
 };
+use rayon::prelude::*;
 
 use crate::{time, Cipher, FheUint8, RegisteredUser, ServerKeyShare};
 
@@ -42,18 +43,24 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
     let total_users = users.len();
 
     let mut outs = vec![];
-    for (my_id, (_, me)) in users.iter().enumerate() {
-        println!("Compute user {}'s karma", me.name);
-        let my_scores_from_others = &ciphers
-            .iter()
-            .enumerate()
-            .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
-            .collect_vec();
 
-        let total = ciphers[my_id].key_switch(my_id).extract_at(total_users);
+    users
+        .par_iter()
+        .enumerate()
+        .map(|(my_id, (_, me))| {
+            set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
+            println!("Compute user {}'s karma", me.name);
+            let my_scores_from_others = &ciphers
+                .iter()
+                .enumerate()
+                .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
+                .collect_vec();
 
-        let ct_out = time!(|| sum_fhe_dyn(my_scores_from_others, &total), "FHE Sum");
-        outs.push(ct_out)
-    }
+            let total = ciphers[my_id].key_switch(my_id).extract_at(total_users);
+
+            let ct_out = time!(|| sum_fhe_dyn(my_scores_from_others, &total), "FHE Sum");
+            ct_out
+        })
+        .collect_into_vec(&mut outs);
     outs
 }

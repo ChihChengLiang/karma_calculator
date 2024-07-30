@@ -24,3 +24,4 @@ tabled = { version = "0.15.0" }
 thiserror = { version = "1.0.63" }
 indicatif = "0.17.8"
 tokio-util = { version = "0.7.11", features = ["io"] }
+rayon = { version = "1.10.0" }
