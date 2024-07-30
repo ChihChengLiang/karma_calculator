@@ -10,13 +10,13 @@ use crate::{time, Cipher, FheUint8, RegisteredUser, ServerKeyShare};
 pub const PARAMETER: ParameterSelector = ParameterSelector::NonInteractiveLTE40PartyExperimental;
 
 /// Circuit
-pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) -> FheUint8 {
+pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8]) -> FheUint8 {
     let sum: FheUint8 = receving_karmas
         .iter()
         .cloned()
         .reduce(|a, b| &a + &b)
         .expect("At least one input is received");
-    &sum - given_out
+    sum
 }
 
 /// Server work
@@ -56,9 +56,16 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
                 .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
                 .collect_vec();
 
-            let total = ciphers[my_id].key_switch(my_id).extract_at(total_users);
+            let given_out = ciphers
+                .iter()
+                .map(|other| other.key_switch(my_id).extract_at(my_id))
+                .collect_vec();
+            let given_out = time!(|| { sum_fhe_dyn(&given_out) }, "FHE Sum: ");
 
-            let ct_out = time!(|| sum_fhe_dyn(my_scores_from_others, &total), "FHE Sum");
+            let ct_out = time!(
+                || { sum_fhe_dyn(my_scores_from_others) - given_out },
+                "FHE Sum"
+            );
             ct_out
         })
         .collect_into_vec(&mut outs);
