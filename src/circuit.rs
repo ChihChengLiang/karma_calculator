@@ -6,6 +6,8 @@ use phantom_zone::{
 
 use crate::{time, Cipher, FheUint8, RegisteredUser, ServerKeyShare};
 
+pub const PARAMETER: ParameterSelector = ParameterSelector::NonInteractiveLTE40PartyExperimental;
+
 /// Circuit
 pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) -> FheUint8 {
     let sum: FheUint8 = receving_karmas
@@ -20,7 +22,7 @@ pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) ->
 /// Warning: global variable change
 pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
     // HACK to make sure that paremeters are set in each thread.
-    set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
+    set_parameter_set(PARAMETER);
     let server_key = time!(
         || aggregate_server_key_shares(server_key_shares),
         "Aggregate server key shares"
