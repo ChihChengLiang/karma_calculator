@@ -122,7 +122,7 @@ async fn run(
         }
     }
     let users = users.lock().await;
-    println!("checking if we have all user submissions");
+    println!("Checking if we have all user submissions");
     let mut ss = ss.lock().await;
 
     let mut server_key_shares = vec![];
@@ -137,6 +137,7 @@ async fn run(
             return Err(Error::CipherNotFound { user_id }.into());
         }
     }
+    println!("We have all submissions!");
 
     ss.fhe_outputs = task::spawn_blocking(move || {
         // Long running, global variable change
