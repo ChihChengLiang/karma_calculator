@@ -182,22 +182,18 @@ async fn submit_decryption_shares(
     Ok(Json(user_id))
 }
 
-#[get("/decryption_share/<fhe_output_id>/<user_id>")]
+#[get("/decryption_share/<output_id>/<user_id>")]
 async fn get_decryption_share(
-    fhe_output_id: usize,
+    output_id: usize,
     user_id: UserId,
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<DecryptionShare>, ErrorResponse> {
-    let mut ss: tokio::sync::MutexGuard<ServerStorage> = ss.lock().await;
-    let decryption_shares = ss.users[user_id]
+    let decryption_shares = ss.lock().await.users[user_id]
         .get_mut_decryption_shares()
         .cloned()
         .ok_or(Error::OutputNotReady)?
-        .ok_or(Error::DecryptionShareNotFound {
-            output_id: fhe_output_id,
-            user_id,
-        })?;
-    Ok(Json(decryption_shares[fhe_output_id].clone()))
+        .ok_or(Error::DecryptionShareNotFound { output_id, user_id })?;
+    Ok(Json(decryption_shares[output_id].clone()))
 }
 
 pub fn setup(seed: &Seed) {
