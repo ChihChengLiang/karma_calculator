@@ -7,13 +7,13 @@ use phantom_zone::{
 use crate::{time, Cipher, FheUint8, RegisteredUser, ServerKeyShare};
 
 /// Circuit
-pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8], given_out: &FheUint8) -> FheUint8 {
-    let sum: FheUint8 = receving_karmas
+pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8]) -> FheUint8 {
+    let sum = receving_karmas
         .iter()
         .cloned()
         .reduce(|a, b| &a + &b)
         .expect("At least one input is received");
-    &sum - given_out
+    sum
 }
 
 /// Server work
@@ -37,21 +37,23 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
         .map(|u| u.0.unseed::<Vec<Vec<u64>>>())
         .collect_vec();
 
-    let total_users = users.len();
-
     let mut outs = vec![];
     for (my_id, (_, me)) in users.iter().enumerate() {
         println!("Compute user {}'s karma", me.name);
-        let my_scores_from_others = &ciphers
+        let karma_sent = ciphers
+            .iter()
+            .map(|other| other.key_switch(my_id).extract_at(my_id))
+            .collect_vec();
+        let karma_received = &ciphers
             .iter()
             .enumerate()
             .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
             .collect_vec();
 
-        let total = ciphers[my_id].key_switch(my_id).extract_at(total_users);
-
-        let ct_out = time!(|| sum_fhe_dyn(my_scores_from_others, &total), "FHE Sum");
-        outs.push(ct_out)
+        let karma_sent = time!(|| { sum_fhe_dyn(&karma_sent) }, "FHE Sum: ");
+        let karma_received = time!(|| sum_fhe_dyn(karma_received), "FHE Sum");
+        let my_balance = &karma_received - &karma_sent;
+        outs.push(my_balance)
     }
     outs
 }

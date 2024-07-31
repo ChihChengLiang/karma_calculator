@@ -67,11 +67,7 @@ impl User {
         self
     }
     fn assign_scores(&mut self, scores: &[u8]) -> &mut Self {
-        let mut scores = scores.to_vec();
-        let total: u8 = scores.iter().sum();
-        scores.push(total);
-
-        self.scores = Some(scores);
+        self.scores = Some(scores.to_vec());
         self
     }
 
