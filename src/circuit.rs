@@ -40,10 +40,7 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
     let mut outs = vec![];
     for (my_id, (_, me)) in users.iter().enumerate() {
         println!("Compute user {}'s karma", me.name);
-        let karma_sent = ciphers
-            .iter()
-            .map(|other| other.key_switch(my_id).extract_at(my_id))
-            .collect_vec();
+        let karma_sent = ciphers[my_id].key_switch(my_id).extract_all();
         let karma_received = &ciphers
             .iter()
             .enumerate()
@@ -56,4 +53,17 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
         outs.push(my_balance)
     }
     outs
+}
+
+#[cfg(test)]
+pub(crate) fn evaluate_plain(karmas: &[Vec<u8>]) -> Vec<u8> {
+    karmas
+        .iter()
+        .enumerate()
+        .map(|(my_id, sent)| {
+            let karma_sent: u8 = sent.iter().sum();
+            let karma_received: u8 = karmas.iter().map(|others| others[my_id]).sum();
+            karma_received - karma_sent
+        })
+        .collect_vec()
 }

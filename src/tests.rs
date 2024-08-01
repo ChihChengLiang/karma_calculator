@@ -1,3 +1,4 @@
+use circuit::evaluate_plain;
 use itertools::Itertools;
 use phantom_zone::{gen_client_key, gen_server_key_share, Encryptor, MultiPartyDecryptor};
 use std::collections::HashMap;
@@ -180,9 +181,11 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
         user.set_total_users(dashboard.users.len());
     }
 
+    let mut input_scores = vec![];
     // Assign scores
     for user in users.iter_mut() {
         let scores: Vec<u8> = (0u8..total_users.try_into().unwrap()).collect_vec();
+        input_scores.push(scores.to_vec());
         user.assign_scores(&scores);
     }
 
@@ -241,6 +244,7 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
     for user in users {
         let decrypted_outs = user.decrypt_everything();
         println!("{} sees {:?}", user.name, decrypted_outs);
+        assert_eq!(evaluate_plain(&input_scores), decrypted_outs)
     }
     Ok(())
 }
