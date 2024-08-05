@@ -4,7 +4,7 @@ use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
-use karma_calculator::{setup, DecryptionSharesMap, ServerStatus, WebClient};
+use karma_calculator::{setup, DecryptionSharesMap, WebClient};
 
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -201,11 +201,9 @@ async fn cmd_setup(name: &str, client: &WebClient) -> Result<(ClientKey, usize),
 }
 
 async fn cmd_get_names(client: &WebClient) -> Result<(bool, Vec<String>), Error> {
-    let dashboard = client.get_dashboard().await?;
-    let is_concluded = matches!(dashboard.status, ServerStatus::ReadyForInputs);
-    let names = dashboard.get_names();
-    dashboard.print_presentation();
-    Ok((is_concluded, names))
+    let d = client.get_dashboard().await?;
+    d.print_presentation();
+    Ok((d.is_concluded(), d.get_names()))
 }
 
 async fn cmd_conclude_registration(client: &WebClient) -> Result<Vec<String>, Error> {

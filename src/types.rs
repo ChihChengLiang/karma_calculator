@@ -25,7 +25,7 @@ pub type ClientKey = phantom_zone::ClientKey;
 pub type UserId = usize;
 pub type FheUint8 = phantom_zone::FheUint8;
 
-pub type MutexServerStatus = Mutex<ServerStatus>;
+pub(crate) type MutexServerStatus = Mutex<ServerStatus>;
 
 #[derive(Debug, Error)]
 pub(crate) enum Error {
@@ -66,9 +66,8 @@ impl From<Error> for ErrorResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(crate = "rocket::serde")]
-pub enum ServerStatus {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ServerStatus {
     /// Users are allowed to join the computation
     ReadyForJoining,
     /// The number of user is determined now.
@@ -185,13 +184,13 @@ pub(crate) type Users<'r> = &'r State<UserList>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Dashboard {
-    pub status: ServerStatus,
-    pub users: Vec<RegisteredUser>,
+    status: String,
+    users: Vec<RegisteredUser>,
 }
 impl Dashboard {
     pub(crate) fn new(status: &ServerStatus, users: &[RegisteredUser]) -> Self {
         Self {
-            status: status.clone(),
+            status: status.to_string(),
             users: users.to_vec(),
         }
     }
@@ -201,6 +200,11 @@ impl Dashboard {
             .iter()
             .map(|reg| reg.name.to_string())
             .collect_vec()
+    }
+
+    /// An API for client to check server state
+    pub fn is_concluded(&self) -> bool {
+        self.status == ServerStatus::ReadyForInputs.to_string()
     }
 
     pub fn print_presentation(&self) {
