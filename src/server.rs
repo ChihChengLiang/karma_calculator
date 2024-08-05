@@ -103,6 +103,44 @@ async fn run(
     ss: &State<MutexServerStorage>,
     status: &State<MutexServerStatus>,
 ) -> Result<Json<String>, ErrorResponse> {
+    let (tx, rx) = oneshot::channel();
+    let blocking_task = tokio::task::spawn_blocking(|| {
+        rayon::ThreadPoolBuilder::new()
+            .build_scoped(
+                // Initialize thread-local storage parameters
+                |thread| {
+                    set_parameter_set(PARAMETER);
+                    thread.run()
+                },
+                // Run parallel code under this pool
+                |pool| pool.install(|| eval_circuits(inputs, tx)),
+            )
+            .unwrap()
+    });
+    state = Running(blocking_task, rx);
+
+    match state {
+        ...
+        Running(blocking_task, rx) => {
+            match rx.try_recv() {
+                Ok(results) => {
+                    state = ServerStatus::CompletedFhe(results);
+                    blocking_task.await.unwrap();
+                }
+                Err(TryRecvError::Empty) => {
+                     return Err(Error::WrongServerState {
+                        expect: ServerStatus::ReadyForRunning,
+                        got: s.clone(),
+                    }
+                    .into())
+                }
+                Err(e) => {
+                    return error(e);
+                }
+            }
+        }
+    }
+
     {
         let mut s = status.lock().await;
         match *s {
