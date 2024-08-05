@@ -40,15 +40,13 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
         .map(|u| u.0.unseed::<Vec<Vec<u64>>>())
         .collect_vec();
 
-    let total_users = users.len();
-
     let mut outs = vec![];
 
     users
         .par_iter()
         .enumerate()
         .map(|(my_id, (_, me))| {
-            set_parameter_set(ParameterSelector::NonInteractiveLTE8Party);
+            set_parameter_set(PARAMETER);
             println!("Compute user {}'s karma", me.name);
             let my_scores_from_others = &ciphers
                 .iter()
@@ -63,7 +61,7 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
             let given_out = time!(|| { sum_fhe_dyn(&given_out) }, "FHE Sum: ");
 
             let ct_out = time!(
-                || { sum_fhe_dyn(my_scores_from_others) - given_out },
+                || { &sum_fhe_dyn(my_scores_from_others) - &given_out },
                 "FHE Sum"
             );
             ct_out
