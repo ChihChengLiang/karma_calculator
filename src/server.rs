@@ -11,7 +11,6 @@ use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
 use rocket::{get, post, routes};
 use rocket::{Build, Rocket, State};
-use tokio::task;
 
 #[get("/param")]
 async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
@@ -103,92 +102,69 @@ async fn run(
     ss: &State<MutexServerStorage>,
     status: &State<MutexServerStatus>,
 ) -> Result<Json<String>, ErrorResponse> {
-    let (tx, rx) = oneshot::channel();
-    let blocking_task = tokio::task::spawn_blocking(|| {
-        rayon::ThreadPoolBuilder::new()
-            .build_scoped(
-                // Initialize thread-local storage parameters
-                |thread| {
-                    set_parameter_set(PARAMETER);
-                    thread.run()
-                },
-                // Run parallel code under this pool
-                |pool| pool.install(|| eval_circuits(inputs, tx)),
-            )
-            .unwrap()
-    });
-    state = Running(blocking_task, rx);
+    let mut s = status.lock().await;
+    match *s {
+        ServerStatus::ReadyForRunning => {
+            let users = users.lock().await;
+            println!("Checking if we have all user submissions");
+            let mut ss = ss.lock().await;
 
-    match state {
-        ...
-        Running(blocking_task, rx) => {
-            match rx.try_recv() {
-                Ok(results) => {
-                    state = ServerStatus::CompletedFhe(results);
-                    blocking_task.await.unwrap();
+            let mut server_key_shares = vec![];
+            let mut ciphers = vec![];
+            for (user_id, user) in users.iter().enumerate() {
+                if let Some((cipher, sks)) = ss.users[user_id].get_cipher_sks() {
+                    server_key_shares.push(sks.clone());
+                    ciphers.push((cipher.clone(), user.to_owned()));
+                    ss.users[user_id] = UserStorage::DecryptionShare(None);
+                } else {
+                    status.lock().await.transit(ServerStatus::ReadyForInputs);
+                    return Err(Error::CipherNotFound { user_id }.into());
                 }
-                Err(TryRecvError::Empty) => {
-                     return Err(Error::WrongServerState {
-                        expect: ServerStatus::ReadyForRunning,
-                        got: s.clone(),
-                    }
-                    .into())
-                }
-                Err(e) => {
-                    return error(e);
-                }
+            }
+            println!("We have all submissions!");
+            let blocking_task = tokio::task::spawn_blocking(move || {
+                rayon::ThreadPoolBuilder::new()
+                    .build_scoped(
+                        // Initialize thread-local storage parameters
+                        |thread| {
+                            set_parameter_set(PARAMETER);
+                            thread.run()
+                        },
+                        // Run parallel code under this pool
+                        |pool| {
+                            pool.install(|| {
+                                // Long running, global variable change
+                                derive_server_key(&server_key_shares);
+                                // Long running
+                                evaluate_circuit(&ciphers)
+                            })
+                        },
+                    )
+                    .unwrap()
+            });
+            s.transit(ServerStatus::RunningFhe { blocking_task });
+            Ok(Json("Awesome".to_string()))
+        }
+        ServerStatus::RunningFhe { blocking_task } => {
+            if blocking_task.is_finished() {
+                status.lock().await.transit(ServerStatus::CompletedFhe);
+                blocking_task.await.unwrap();
+                Ok(Json("FHE complete".to_string()))
+            } else {
+                todo!("server is still running");
             }
         }
-    }
-
-    {
-        let mut s = status.lock().await;
-        match *s {
-            ServerStatus::ReadyForRunning => {
-                s.transit(ServerStatus::RunningFhe);
+        ServerStatus::CompletedFhe => {
+            return Ok(Json("FHE already complete".to_string()));
+        }
+        _ => {
+            return Err(Error::WrongServerState {
+                expect: ServerStatus::ReadyForRunning.to_string(),
+                got: s.to_string(),
             }
-            ServerStatus::CompletedFhe => {
-                return Ok(Json("FHE already complete".to_string()));
-            }
-            _ => {
-                return Err(Error::WrongServerState {
-                    expect: ServerStatus::ReadyForRunning,
-                    got: s.clone(),
-                }
-                .into())
-            }
+            .into())
         }
     }
-    let users = users.lock().await;
-    println!("Checking if we have all user submissions");
-    let mut ss = ss.lock().await;
-
-    let mut server_key_shares = vec![];
-    let mut ciphers = vec![];
-    for (user_id, user) in users.iter().enumerate() {
-        if let Some((cipher, sks)) = ss.users[user_id].get_cipher_sks() {
-            server_key_shares.push(sks.clone());
-            ciphers.push((cipher.clone(), user.to_owned()));
-            ss.users[user_id] = UserStorage::DecryptionShare(None);
-        } else {
-            status.lock().await.transit(ServerStatus::ReadyForInputs);
-            return Err(Error::CipherNotFound { user_id }.into());
-        }
-    }
-    println!("We have all submissions!");
-
-    ss.fhe_outputs = task::spawn_blocking(move || {
-        // Long running, global variable change
-        derive_server_key(&server_key_shares);
-        // Long running
-        evaluate_circuit(&ciphers)
-    })
-    .await
-    .map_err(|err| ErrorResponse::ServerError(err.to_string()))?;
-
-    status.lock().await.transit(ServerStatus::CompletedFhe);
-
-    Ok(Json("FHE complete".to_string()))
 }
 
 #[get("/fhe_output")]

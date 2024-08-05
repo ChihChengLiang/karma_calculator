@@ -30,10 +30,7 @@ pub(crate) type MutexServerStatus = Mutex<ServerStatus>;
 #[derive(Debug, Error)]
 pub(crate) enum Error {
     #[error("Wrong server state: expect {expect} but got {got}")]
-    WrongServerState {
-        expect: ServerStatus,
-        got: ServerStatus,
-    },
+    WrongServerState { expect: String, got: String },
     #[error("User #{user_id} is unregistered")]
     UnregisteredUser { user_id: usize },
     #[error("The ciphertext from user #{user_id} not found")]
@@ -66,7 +63,7 @@ impl From<Error> for ErrorResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum ServerStatus {
     /// Users are allowed to join the computation
     ReadyForJoining,
@@ -74,18 +71,20 @@ pub(crate) enum ServerStatus {
     /// We can now accept ciphertexts, which depends on the number of users.
     ReadyForInputs,
     ReadyForRunning,
-    RunningFhe,
+    RunningFhe {
+        blocking_task: tokio::task::JoinHandle<Vec<FheUint8>>,
+    },
     CompletedFhe,
 }
 
 impl ServerStatus {
     pub(crate) fn ensure(&self, expect: Self) -> Result<&Self, Error> {
-        if self == &expect {
+        if self.to_string() == expect.to_string() {
             Ok(self)
         } else {
             Err(Error::WrongServerState {
-                expect,
-                got: self.clone(),
+                expect: expect.to_string(),
+                got: self.to_string(),
             })
         }
     }
