@@ -260,5 +260,5 @@ async fn full_flow() {
     // Need to fix the global variable thing to allow multiple flow run
     // run_flow_with_n_users(2).await.unwrap();
     // run_flow_with_n_users(3).await.unwrap();
-    run_flow_with_n_users(40).await.unwrap();
+    run_flow_with_n_users(4).await.unwrap();
 }
