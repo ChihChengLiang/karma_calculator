@@ -215,6 +215,8 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
             .submit_cipher(user_id, &cipher_text, &sks)
             .await
             .unwrap();
+        // Drop here to save mem
+        user.server_key = None;
     }
 
     // Admin runs the FHE computation
