@@ -73,11 +73,7 @@ impl User {
         self
     }
     fn assign_scores(&mut self, scores: &[u8]) -> &mut Self {
-        let mut scores = scores.to_vec();
-        let total: u8 = scores.iter().sum();
-        scores.push(total);
-
-        self.scores = Some(scores);
+        self.scores = Some(scores.to_vec());
         self
     }
 
@@ -197,8 +193,7 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
     }
 
     let mut correct_output = vec![];
-    for me in users.iter() {
-        let my_id = me.id.unwrap();
+    for (my_id, me) in users.iter().enumerate() {
         let given_out = me.scores.as_ref().unwrap().iter().sum::<u8>();
         let mut received = 0u8;
         for other in users.iter() {
