@@ -105,6 +105,7 @@ async fn run(
     status: &State<MutexServerStatus>,
 ) -> Result<Json<String>, ErrorResponse> {
     let mut s = status.lock().await;
+    // Hack: fix ownership problem
     let prev_s = std::mem::replace(s.deref_mut(), ServerStatus::ReadyForJoining);
     match prev_s {
         ServerStatus::ReadyForRunning => {
@@ -155,7 +156,7 @@ async fn run(
                 let mut ss = ss.lock().await;
                 ss.fhe_outputs = blocking_task.await.unwrap();
 
-                println!("CompletedFhe");
+                println!("FHE computation completed");
                 Ok(Json("FHE complete".to_string()))
             } else {
                 s.transit(ServerStatus::RunningFhe { blocking_task });
@@ -164,15 +165,15 @@ async fn run(
         }
         ServerStatus::CompletedFhe => {
             s.transit(prev_s);
-            return Ok(Json("FHE already complete".to_string()));
+            Ok(Json("FHE already complete".to_string()))
         }
         _ => {
             s.transit(prev_s);
-            return Err(Error::WrongServerState {
+            Err(Error::WrongServerState {
                 expect: ServerStatus::ReadyForRunning.to_string(),
                 got: s.to_string(),
             }
-            .into());
+            .into())
         }
     }
 }
