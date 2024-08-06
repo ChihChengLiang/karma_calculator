@@ -240,17 +240,14 @@ async fn cmd_score_encrypt(
         "All scores should be less or equal than 127. Scores: {:#?}",
         scores,
     );
-    let total = scores.iter().sum();
+    let total: u8 = scores.iter().sum();
     for (name, score) in zip(names, scores.iter()) {
         println!("Give {name} {score} karma");
     }
     println!("I gave out {total} karma");
 
-    let mut plain_text = scores.to_vec();
-    plain_text.push(total);
-
     println!("Encrypting Inputs");
-    let cipher = ck.encrypt(plain_text.as_slice());
+    let cipher = ck.encrypt(scores.as_slice());
     println!("Generating server key share");
     let sks = gen_server_key_share(*user_id, total_users, ck);
 
