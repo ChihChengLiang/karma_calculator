@@ -4,7 +4,8 @@ use phantom_zone::{
     gen_client_key, gen_server_key_share, set_parameter_set, Encryptor, MultiPartyDecryptor,
 };
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
+use tokio::time::sleep;
 
 use crate::*;
 use anyhow::Error;
@@ -186,7 +187,7 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
 
     for user in users.iter_mut() {
         let dashboard = client.get_dashboard().await.unwrap();
-        user.set_total_users(dashboard.users.len());
+        user.set_total_users(dashboard.get_names().len());
     }
 
     // Assign scores
@@ -231,6 +232,9 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
 
     // Admin runs the FHE computation
     client.trigger_fhe_run().await.unwrap();
+    while client.trigger_fhe_run().await.unwrap() != "FHE already complete" {
+        sleep(Duration::from_secs(1)).await
+    }
 
     // Users get FHE output, generate decryption shares, and submit decryption shares
     for user in users.iter_mut() {

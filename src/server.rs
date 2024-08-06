@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::types::{
     CipherSubmission, Dashboard, DecryptionShareSubmission, Error, ErrorResponse,
@@ -103,7 +105,8 @@ async fn run(
     status: &State<MutexServerStatus>,
 ) -> Result<Json<String>, ErrorResponse> {
     let mut s = status.lock().await;
-    match &(*s) {
+    let prev_s = std::mem::replace(s.deref_mut(), ServerStatus::ReadyForJoining);
+    match prev_s {
         ServerStatus::ReadyForRunning => {
             let users = users.lock().await;
             println!("Checking if we have all user submissions");
@@ -117,10 +120,11 @@ async fn run(
                     ciphers.push((cipher.clone(), user.to_owned()));
                     ss.users[user_id] = UserStorage::DecryptionShare(None);
                 } else {
-                    status.lock().await.transit(ServerStatus::ReadyForInputs);
+                    s.transit(ServerStatus::ReadyForInputs);
                     return Err(Error::CipherNotFound { user_id }.into());
                 }
             }
+            drop(users);
             println!("We have all submissions!");
             let blocking_task = tokio::task::spawn_blocking(move || {
                 rayon::ThreadPoolBuilder::new()
@@ -147,21 +151,28 @@ async fn run(
         }
         ServerStatus::RunningFhe { blocking_task } => {
             if blocking_task.is_finished() {
-                status.lock().await.transit(ServerStatus::CompletedFhe);
+                s.transit(ServerStatus::CompletedFhe);
+                let mut ss = ss.lock().await;
+                ss.fhe_outputs = blocking_task.await.unwrap();
+
+                println!("CompletedFhe");
                 Ok(Json("FHE complete".to_string()))
             } else {
-                todo!("server is still running");
+                s.transit(ServerStatus::RunningFhe { blocking_task });
+                Ok(Json("FHE is still running".to_string()))
             }
         }
         ServerStatus::CompletedFhe => {
+            s.transit(prev_s);
             return Ok(Json("FHE already complete".to_string()));
         }
         _ => {
+            s.transit(prev_s);
             return Err(Error::WrongServerState {
                 expect: ServerStatus::ReadyForRunning.to_string(),
                 got: s.to_string(),
             }
-            .into())
+            .into());
         }
     }
 }

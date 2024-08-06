@@ -206,6 +206,10 @@ impl Dashboard {
         self.status == ServerStatus::ReadyForInputs.to_string()
     }
 
+    pub fn is_fhe_complete(&self) -> bool {
+        self.status == ServerStatus::CompletedFhe.to_string()
+    }
+
     pub fn print_presentation(&self) {
         println!("🤖🧠 {}", self.status);
         let users = Table::new(&self.users)
