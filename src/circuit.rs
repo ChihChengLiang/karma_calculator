@@ -10,7 +10,7 @@ pub const PARAMETER: ParameterSelector = ParameterSelector::NonInteractiveLTE40P
 
 /// Circuit
 pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8]) -> FheUint8 {
-    let sum: FheUint8 = receving_karmas
+    let sum = receving_karmas
         .iter()
         .cloned()
         .reduce(|a, b| &a + &b)
@@ -43,24 +43,21 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
         .par_iter()
         .enumerate()
         .map(|(my_id, (_, me))| {
-            println!("Compute user {}'s karma", me.name);
-            let my_scores_from_others = &ciphers
+            println!("Compute {}'s karma", me.name);
+            let received = &ciphers
                 .iter()
                 .enumerate()
                 .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
                 .collect_vec();
 
-            let given_out = ciphers
+            let sent = ciphers
                 .iter()
                 .map(|other| other.key_switch(my_id).extract_at(my_id))
                 .collect_vec();
-            let given_out = time!(|| { sum_fhe_dyn(&given_out) }, "FHE Sum: ");
+            let sent = sum_fhe_dyn(&sent);
+            let received = sum_fhe_dyn(received);
 
-            let ct_out = time!(
-                || { &sum_fhe_dyn(my_scores_from_others) - &given_out },
-                "FHE Sum"
-            );
-            ct_out
+            &received - &sent
         })
         .collect_into_vec(&mut outs);
     outs
