@@ -114,11 +114,11 @@ async fn run(
 
             let mut server_key_shares = vec![];
             let mut ciphers = vec![];
-            for (user_id, user) in users.iter().enumerate() {
-                if let Some((cipher, sks)) = ss.users[user_id].get_cipher_sks() {
+            for (user_id, user) in ss.users.iter_mut().enumerate() {
+                if let Some((cipher, sks)) = user.get_cipher_sks() {
                     server_key_shares.push(sks.clone());
-                    ciphers.push((cipher.clone(), user.to_owned()));
-                    ss.users[user_id] = UserStorage::DecryptionShare(None);
+                    ciphers.push(cipher.clone());
+                    *user = UserStorage::DecryptionShare(None);
                 } else {
                     s.transit(ServerStatus::ReadyForInputs);
                     return Err(Error::CipherNotFound { user_id }.into());
