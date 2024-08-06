@@ -196,6 +196,17 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
         user.assign_scores(&scores);
     }
 
+    let mut correct_output = vec![];
+    for me in users.iter() {
+        let my_id = me.id.unwrap();
+        let given_out = me.scores.as_ref().unwrap().iter().sum::<u8>();
+        let mut received = 0u8;
+        for other in users.iter() {
+            received += other.scores.as_ref().unwrap()[my_id];
+        }
+        correct_output.push(received - given_out)
+    }
+
     users.par_iter_mut().for_each(|user| {
         set_parameter_set(PARAMETER);
         println!("{} Gen cipher", user.name);
@@ -265,6 +276,7 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
     for user in users {
         let decrypted_outs = user.decrypt_everything();
         println!("{} sees {:?}", user.name, decrypted_outs);
+        assert_eq!(decrypted_outs, correct_output);
     }
     Ok(())
 }
