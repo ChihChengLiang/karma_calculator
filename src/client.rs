@@ -1,6 +1,7 @@
+use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
-    Cipher, CipherSubmission, Dashboard, DecryptionShare, DecryptionShareSubmission, FheUint8,
-    RegisteredUser, Seed, ServerKeyShare, UserId,
+    Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, Seed,
+    ServerKeyShare, UserId,
 };
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};
