@@ -103,7 +103,7 @@ async fn run(
     status: &State<MutexServerStatus>,
 ) -> Result<Json<String>, ErrorResponse> {
     let mut s = status.lock().await;
-    match *s {
+    match &(*s) {
         ServerStatus::ReadyForRunning => {
             let users = users.lock().await;
             println!("Checking if we have all user submissions");
@@ -148,7 +148,6 @@ async fn run(
         ServerStatus::RunningFhe { blocking_task } => {
             if blocking_task.is_finished() {
                 status.lock().await.transit(ServerStatus::CompletedFhe);
-                blocking_task.await.unwrap();
                 Ok(Json("FHE complete".to_string()))
             } else {
                 todo!("server is still running");
