@@ -1,7 +1,6 @@
 use itertools::Itertools;
 use phantom_zone::{
-    aggregate_server_key_shares, set_parameter_set, KeySwitchWithId, ParameterSelector,
-    SampleExtractor,
+    aggregate_server_key_shares, KeySwitchWithId, ParameterSelector, SampleExtractor,
 };
 use rayon::prelude::*;
 
@@ -22,8 +21,6 @@ pub(crate) fn sum_fhe_dyn(receving_karmas: &[FheUint8]) -> FheUint8 {
 /// Server work
 /// Warning: global variable change
 pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
-    // HACK to make sure that paremeters are set in each thread.
-    set_parameter_set(PARAMETER);
     let server_key = time!(
         || aggregate_server_key_shares(server_key_shares),
         "Aggregate server key shares"
@@ -46,7 +43,6 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
         .par_iter()
         .enumerate()
         .map(|(my_id, (_, me))| {
-            set_parameter_set(PARAMETER);
             println!("Compute user {}'s karma", me.name);
             let my_scores_from_others = &ciphers
                 .iter()
