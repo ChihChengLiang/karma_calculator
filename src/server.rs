@@ -6,7 +6,7 @@ use crate::types::{
     MutexServerStatus, MutexServerStorage, RegisteredUser, ServerStatus, ServerStorage, UserList,
     UserStatus, UserStorage, Users,
 };
-use crate::{DecryptionShare, Seed, UserId};
+use crate::{time, DecryptionShare, Seed, UserId};
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8};
 use rand::{thread_rng, RngCore};
 use rocket::serde::json::Json;
@@ -140,7 +140,7 @@ async fn run(
                                 // Long running, global variable change
                                 derive_server_key(&server_key_shares);
                                 // Long running
-                                evaluate_circuit(&ciphers)
+                                time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit")
                             })
                         },
                     )
