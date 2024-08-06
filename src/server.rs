@@ -24,39 +24,30 @@ async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
 #[post("/register", data = "<name>")]
 async fn register(
     name: &str,
-    users: Users<'_>,
-    status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<RegisteredUser>, ErrorResponse> {
-    let s = status.lock().await;
-    s.ensure(ServerStatus::ReadyForJoining)?;
-    let mut users = users.lock().await;
-    let user_id = users.len();
-    let user = RegisteredUser::new(user_id, name);
-    users.push(user.clone());
     let mut ss = ss.lock().await;
+    ss.status.ensure(ServerStatus::ReadyForJoining)?;
+    let user_id = ss.users.len();
+    let user = RegisteredUser::new(user_id, name);
     ss.users.push(UserStorage::Empty);
     Ok(Json(user))
 }
 
 #[post("/conclude_registration")]
 async fn conclude_registration(
-    users: Users<'_>,
-    status: &State<MutexServerStatus>,
+    ss: &State<MutexServerStorage>,
 ) -> Result<Json<Dashboard>, ErrorResponse> {
-    let mut s = status.lock().await;
-    s.ensure(ServerStatus::ReadyForJoining)?;
-    s.transit(ServerStatus::ReadyForInputs);
-    let users = users.lock().await;
-    let dashboard = Dashboard::new(&s, &users);
+    let mut ss = ss.lock().await;
+    ss.status.ensure(ServerStatus::ReadyForJoining)?;
+    ss.status.transit(ServerStatus::ReadyForInputs);
+    let dashboard = ss.get_dashboard();
     Ok(Json(dashboard))
 }
 
 #[get("/dashboard")]
-async fn get_dashboard(users: Users<'_>, status: &State<MutexServerStatus>) -> Json<Dashboard> {
-    let s = status.lock().await;
-    let users = users.lock().await;
-    let dashboard = Dashboard::new(&s, &users);
+async fn get_dashboard(ss: &State<MutexServerStorage>) -> Json<Dashboard> {
+    let dashboard = ss.lock().await.get_dashboard();
     Json(dashboard)
 }
 
@@ -64,13 +55,11 @@ async fn get_dashboard(users: Users<'_>, status: &State<MutexServerStatus>) -> J
 #[post("/submit", data = "<submission>", format = "msgpack")]
 async fn submit(
     submission: MsgPack<CipherSubmission>,
-    users: Users<'_>,
-    status: &State<MutexServerStatus>,
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<UserId>, ErrorResponse> {
-    {
-        status.lock().await.ensure(ServerStatus::ReadyForInputs)?;
-    }
+    let ss = ss.lock().await;
+
+    ss.status.ensure(ServerStatus::ReadyForInputs)?;
 
     let CipherSubmission {
         user_id,
@@ -78,20 +67,18 @@ async fn submit(
         sks,
     } = submission.0;
 
-    let mut users = users.lock().await;
+    let users = ss.users;
     if users.len() <= user_id {
         return Err(Error::UnregisteredUser { user_id }.into());
     }
-    let mut ss = ss.lock().await;
-    println!("{} Submited data", users[user_id].name);
-    ss.users[user_id] = UserStorage::CipherSks(cipher_text, Box::new(sks));
-    users[user_id].status = UserStatus::CipherSubmitted;
+    println!("{} submited data", users[user_id].name);
+    users[user_id] = UserStorage::CipherSks(cipher_text, Box::new(sks));
 
     if users
         .iter()
-        .all(|user| matches!(user.status, UserStatus::CipherSubmitted))
+        .all(|user| matches!(user, UserStorage::CipherSks(..)))
     {
-        status.lock().await.transit(ServerStatus::ReadyForRunning);
+        ss.status.transit(ServerStatus::ReadyForRunning);
     }
 
     Ok(Json(user_id))
@@ -99,20 +86,14 @@ async fn submit(
 
 /// The admin runs the fhe computation
 #[post("/run")]
-async fn run(
-    users: Users<'_>,
-    ss: &State<MutexServerStorage>,
-    status: &State<MutexServerStatus>,
-) -> Result<Json<String>, ErrorResponse> {
-    let mut s = status.lock().await;
-    // Hack: fix ownership problem
-    let prev_s = std::mem::replace(s.deref_mut(), ServerStatus::ReadyForJoining);
-    match prev_s {
+async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorResponse> {
+    let mut ss = ss.lock().await;
+    let s = ss.status;
+    let users = &ss.users;
+    // let prev_s = std::mem::replace(s.deref_mut(), ServerStatus::ReadyForJoining);
+    match s {
         ServerStatus::ReadyForRunning => {
-            let users = users.lock().await;
             println!("Checking if we have all user submissions");
-            let mut ss = ss.lock().await;
-
             let mut server_key_shares = vec![];
             let mut ciphers = vec![];
             for (user_id, user) in ss.users.iter_mut().enumerate() {
@@ -125,7 +106,6 @@ async fn run(
                     return Err(Error::CipherNotFound { user_id }.into());
                 }
             }
-            drop(users);
             println!("We have all submissions!");
             let blocking_task = tokio::task::spawn_blocking(move || {
                 rayon::ThreadPoolBuilder::new()
@@ -152,8 +132,7 @@ async fn run(
         }
         ServerStatus::RunningFhe { blocking_task } => {
             if blocking_task.is_finished() {
-                s.transit(ServerStatus::CompletedFhe);
-                let mut ss = ss.lock().await;
+                ss.status.transit(ServerStatus::CompletedFhe);
                 ss.fhe_outputs = blocking_task.await.unwrap();
 
                 println!("FHE computation completed");
@@ -193,7 +172,6 @@ async fn get_fhe_output(
 async fn submit_decryption_shares(
     submission: MsgPack<DecryptionShareSubmission>,
     ss: &State<MutexServerStorage>,
-    users: Users<'_>,
 ) -> Result<Json<UserId>, ErrorResponse> {
     let user_id = submission.user_id;
     let mut ss = ss.lock().await;
@@ -202,7 +180,6 @@ async fn submit_decryption_shares(
         .ok_or(Error::OutputNotReady)?;
     *decryption_shares = Some(submission.decryption_shares.to_vec());
 
-    let mut users = users.lock().await;
 
     users[user_id].status = UserStatus::DecryptionShareSubmitted;
     Ok(Json(user_id))

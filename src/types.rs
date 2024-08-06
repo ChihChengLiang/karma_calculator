@@ -25,8 +25,6 @@ pub type ClientKey = phantom_zone::ClientKey;
 pub type UserId = usize;
 pub type FheUint8 = phantom_zone::FheUint8;
 
-pub(crate) type MutexServerStatus = Mutex<ServerStatus>;
-
 #[derive(Debug, Error)]
 pub(crate) enum Error {
     #[error("Wrong server state: expect {expect} but got {got}")]
@@ -101,10 +99,10 @@ impl Display for ServerStatus {
 
 pub(crate) type MutexServerStorage = Mutex<ServerStorage>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
+#[derive(Debug)]
 pub(crate) struct ServerStorage {
     pub(crate) seed: Seed,
+    pub(crate) status: ServerStatus,
     pub(crate) users: Vec<UserStorage>,
     pub(crate) fhe_outputs: Vec<FheUint8>,
 }
@@ -113,14 +111,17 @@ impl ServerStorage {
     pub(crate) fn new(seed: Seed) -> Self {
         Self {
             seed,
+            status: ServerStatus::ReadyForJoining,
             users: vec![],
             fhe_outputs: Default::default(),
         }
     }
+    pub(crate) fn get_dashboard(&self) -> Dashboard {
+        todo!()
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(crate = "rocket::serde")]
+#[derive(Debug, Clone, Default)]
 pub(crate) enum UserStorage {
     #[default]
     Empty,
@@ -176,10 +177,6 @@ impl RegisteredUser {
         }
     }
 }
-
-// We're going to store all of the messages here. No need for a DB.
-pub(crate) type UserList = Mutex<Vec<RegisteredUser>>;
-pub(crate) type Users<'r> = &'r State<UserList>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Dashboard {
