@@ -31,10 +31,18 @@ pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
 
 /// Server work
 pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUint8> {
-    // Unseed ciphers
+    // Preprocess ciphers
+    // 1. Decompression: A cipher is a matrix generated from a seed. The seed is sent through the network as a compression. By calling the `unseed` method we recovered the matrix here.
+    // 2. Key Switch: We reencrypt the cipher with the server key for the computation. We need to specify the original signer of the cipher.
+    // 3. Extract: A user's encrypted inputs are packed in `BatchedFheUint8` struct. We call `extract_all` method to convert it to `Vec<FheUint8>` for easier manipulation.
     let ciphers = users
         .iter()
-        .map(|u| u.0.unseed::<Vec<Vec<u64>>>())
+        .enumerate()
+        .map(|(user_id, u)| {
+            u.0.unseed::<Vec<Vec<u64>>>()
+                .key_switch(user_id)
+                .extract_all()
+        })
         .collect_vec();
 
     let mut outs = vec![];
@@ -44,15 +52,9 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
         .enumerate()
         .map(|(my_id, (_, me))| {
             println!("Compute {}'s karma", me.name);
-            let received = &ciphers
-                .iter()
-                .enumerate()
-                .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
-                .collect_vec();
-
-            let sent = ciphers[my_id].key_switch(my_id).extract_all();
-            let sent = sum_fhe_dyn(&sent);
-            let received = sum_fhe_dyn(received);
+            let sent = sum_fhe_dyn(&ciphers[my_id]);
+            let received = ciphers.iter().map(|enc| enc[my_id].clone()).collect_vec();
+            let received = sum_fhe_dyn(&received);
 
             &received - &sent
         })
