@@ -4,6 +4,7 @@ use std::fmt::Display;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 
+use crate::types::{ServerState, UserRecord};
 use crate::UserId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,6 +19,19 @@ pub(crate) enum ServerStatus {
 impl Display for ServerStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[[ {:?} ]]", self)
+    }
+}
+
+impl From<&ServerState> for ServerStatus {
+    fn from(state: &ServerState) -> Self {
+        use ServerState::*;
+        match state {
+            ReadyForJoining => Self::ReadyForJoining,
+            ReadyForInputs => Self::ReadyForInputs,
+            ReadyForRunning => Self::ReadyForRunning,
+            RunningFhe { .. } => Self::RunningFhe,
+            CompletedFhe => Self::CompletedFhe,
+        }
     }
 }
 
@@ -48,6 +62,22 @@ impl RegisteredUser {
             id,
             name: name.to_string(),
             status: UserStatus::IDAcquired,
+        }
+    }
+}
+impl From<&UserRecord> for RegisteredUser {
+    fn from(user: &UserRecord) -> Self {
+        use crate::types::UserStorage::*;
+        let status = match user.storage {
+            Empty => UserStatus::IDAcquired,
+            CipherSks(_, _) => UserStatus::CipherSubmitted,
+            DecryptionShare(_) => UserStatus::DecryptionShareSubmitted,
+        };
+
+        Self {
+            id: user.id,
+            name: user.name.to_string(),
+            status,
         }
     }
 }

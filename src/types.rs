@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use phantom_zone::{
     evaluator::NonInteractiveMultiPartyCrs,
     keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare, parameters::BoolParameters,
@@ -160,13 +161,16 @@ impl ServerStorage {
     }
 
     pub(crate) fn get_dashboard(&self) -> Dashboard {
-        todo!()
+        Dashboard::new(
+            &(&self.state).into(),
+            &self.users.iter().map_into().collect_vec(),
+        )
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct UserRecord {
-    id: UserId,
+    pub(crate) id: UserId,
     pub(crate) name: String,
     pub(crate) storage: UserStorage,
 }
