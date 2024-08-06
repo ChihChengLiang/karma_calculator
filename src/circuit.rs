@@ -50,10 +50,7 @@ pub(crate) fn evaluate_circuit(users: &[(Cipher, RegisteredUser)]) -> Vec<FheUin
                 .map(|(other_id, enc)| enc.key_switch(other_id).extract_at(my_id))
                 .collect_vec();
 
-            let sent = ciphers
-                .iter()
-                .map(|other| other.key_switch(my_id).extract_at(my_id))
-                .collect_vec();
+            let sent = ciphers[my_id].key_switch(my_id).extract_all();
             let sent = sum_fhe_dyn(&sent);
             let received = sum_fhe_dyn(received);
 
