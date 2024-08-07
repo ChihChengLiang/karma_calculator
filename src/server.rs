@@ -28,6 +28,7 @@ async fn register(
     let mut ss = ss.lock().await;
     ss.ensure(ServerStateView::ReadyForJoining)?;
     let user = ss.add_user(name);
+    println!("{name} just joined!");
 
     Ok(Json(user))
 }
@@ -39,6 +40,7 @@ async fn conclude_registration(
     let mut ss = ss.lock().await;
     ss.ensure(ServerStateView::ReadyForJoining)?;
     ss.transit(ServerState::ReadyForInputs);
+    println!("Registration closed!");
     let dashboard = ss.get_dashboard();
     Ok(Json(dashboard))
 }
