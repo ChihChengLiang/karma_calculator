@@ -34,6 +34,7 @@ pub type UserId = usize;
 pub type PlainWord = u32;
 type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 
+/// Encrypted input words contributed from one user
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitInput {
     karma_sent: Vec<EncryptedWord>,
@@ -69,6 +70,34 @@ fn encrypt_plain(ck: &ClientKey, plain: PlainWord) -> EncryptedWord {
     let plain = u64_to_binary::<32>(plain as u64);
     let cipher = ck.encrypt(plain.as_slice());
     return cipher;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitOutput {
+    /// Computed karma balance of all users
+    karma_balance: Vec<Word>,
+}
+
+impl CircuitOutput {
+    pub(crate) fn new(karma_balance: Vec<Word>) -> Self {
+        Self { karma_balance }
+    }
+
+    /// For each output word, a user generates its decryption share
+    pub fn gen_decryption_shares(&self, ck: &ClientKey) -> Vec<DecryptionShare> {
+        self.karma_balance
+            .iter()
+            .map(|word| gen_decryption_shares(ck, word))
+            .collect_vec()
+    }
+
+    pub fn decrypt(&self, ck: &ClientKey, dss: &[Vec<DecryptionShare>]) -> Vec<PlainWord> {
+        self.karma_balance
+            .iter()
+            .zip_eq(dss)
+            .map(|(word, shares)| decrypt_word(ck, word, shares))
+            .collect_vec()
+    }
 }
 
 pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &Word) -> DecryptionShare {
@@ -165,7 +194,7 @@ pub(crate) struct ServerStorage {
     pub(crate) seed: Seed,
     pub(crate) state: ServerState,
     pub(crate) users: Vec<UserRecord>,
-    pub(crate) fhe_outputs: Vec<Word>,
+    pub(crate) fhe_outputs: Option<CircuitOutput>,
 }
 
 impl ServerStorage {
@@ -174,7 +203,7 @@ impl ServerStorage {
             seed,
             state: ServerState::ReadyForJoining,
             users: vec![],
-            fhe_outputs: Default::default(),
+            fhe_outputs: None,
         }
     }
 

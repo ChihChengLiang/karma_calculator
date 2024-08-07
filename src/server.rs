@@ -4,7 +4,7 @@ use crate::types::{
     DecryptionShareSubmission, Error, ErrorResponse, InputSubmission, MutexServerStorage,
     ServerState, ServerStorage, UserStorage, Word,
 };
-use crate::{time, DecryptionShare, Seed, UserId};
+use crate::{time, CircuitOutput, DecryptionShare, Seed, UserId};
 use phantom_zone::{set_common_reference_seed, set_parameter_set};
 use rand::{thread_rng, RngCore};
 use rocket::serde::json::Json;
@@ -102,7 +102,7 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerState>, ErrorR
                                 let output =
                                     time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit");
                                 let mut ss = s2.blocking_lock();
-                                ss.fhe_outputs = output;
+                                ss.fhe_outputs = Some(output);
                                 ss.transit(ServerState::CompletedFhe);
                                 println!("FHE computation completed");
                             })
@@ -124,10 +124,16 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerState>, ErrorR
 }
 
 #[get("/fhe_output")]
-async fn get_fhe_output(ss: &State<MutexServerStorage>) -> Result<Json<Vec<Word>>, ErrorResponse> {
+async fn get_fhe_output(
+    ss: &State<MutexServerStorage>,
+) -> Result<Json<CircuitOutput>, ErrorResponse> {
     let ss = ss.lock().await;
     ss.ensure(ServerState::CompletedFhe)?;
-    Ok(Json(ss.fhe_outputs.to_vec()))
+    let output = ss
+        .fhe_outputs
+        .clone()
+        .expect("Should exist after CompletedFhe");
+    Ok(Json(output))
 }
 
 /// The user submits the ciphertext
