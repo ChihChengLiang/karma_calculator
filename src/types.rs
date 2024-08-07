@@ -10,7 +10,6 @@ use rocket::Responder;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::Arc;
-use tokio::sync::oneshot::Receiver;
 
 use thiserror::Error;
 
@@ -41,8 +40,6 @@ pub(crate) enum Error {
     /// Temporary here
     #[error("Output not ready")]
     OutputNotReady,
-    #[error("Oneshot channel: {0}")]
-    ChannelError(String),
 }
 
 #[derive(Responder)]
@@ -56,9 +53,9 @@ pub(crate) enum ErrorResponse {
 impl From<Error> for ErrorResponse {
     fn from(error: Error) -> Self {
         match error {
-            Error::WrongServerState { .. }
-            | Error::CipherNotFound { .. }
-            | Error::ChannelError(..) => ErrorResponse::ServerError(error.to_string()),
+            Error::WrongServerState { .. } | Error::CipherNotFound { .. } => {
+                ErrorResponse::ServerError(error.to_string())
+            }
             Error::DecryptionShareNotFound { .. }
             | Error::UnregisteredUser { .. }
             | Error::OutputNotReady => ErrorResponse::NotFoundError(error.to_string()),
@@ -185,7 +182,7 @@ impl ServerStorage {
                 ciphers.push(cipher.clone());
                 user.storage = UserStorage::DecryptionShare(None);
             } else {
-                return Err(Error::CipherNotFound { user_id }.into());
+                return Err(Error::CipherNotFound { user_id });
             }
         }
         Ok((server_key_shares, ciphers))

@@ -1,6 +1,3 @@
-use std::ops::Deref;
-use std::sync::Arc;
-
 use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
@@ -14,7 +11,7 @@ use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
 use rocket::{get, post, routes};
 use rocket::{Build, Rocket, State};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::Mutex;
 
 #[get("/param")]
 async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
@@ -89,12 +86,9 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
 
     match &mut ss.state {
         ServerState::ReadyForRunning => {
-            println!("Checking if we have all user submissions");
             let (server_key_shares, ciphers) = ss.get_ciphers_and_sks()?;
-            println!("We have all submissions!");
 
             tokio::task::spawn_blocking(move || {
-                println!("build thread pool");
                 rayon::ThreadPoolBuilder::new()
                     .build_scoped(
                         // Initialize thread-local storage parameters
@@ -105,14 +99,12 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
                         // Run parallel code under this pool
                         |pool| {
                             pool.install(|| {
-                                println!("derive server key");
+                                println!("Begin FHE run");
                                 // Long running, global variable change
                                 derive_server_key(&server_key_shares);
                                 // Long running
-                                println!("eval circuit");
                                 let output =
                                     time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit");
-                                println!("s2 lock");
                                 let mut ss = s2.blocking_lock();
                                 ss.fhe_outputs = output;
                                 ss.transit(ServerState::CompletedFhe);
@@ -125,19 +117,7 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
             ss.transit(ServerState::RunningFhe);
             Ok(Json(ServerStateView::RunningFhe))
         }
-        ServerState::RunningFhe => {
-            Ok(Json(ServerStateView::RunningFhe))
-        }
-        // ServerState::RunningFhe { rx } => match rx.try_recv() {
-        //     Ok(output) => {
-        //         ss.fhe_outputs = output;
-        //         ss.transit(ServerState::CompletedFhe);
-        //         println!("FHE computation completed");
-        //         Ok(Json(ServerStateView::CompletedFhe))
-        //     }
-        //     Err(oneshot::error::TryRecvError::Empty) => Ok(Json(ServerStateView::RunningFhe)),
-        //     Err(err) => Err(Error::ChannelError(err.to_string()).into()),
-        // },
+        ServerState::RunningFhe => Ok(Json(ServerStateView::RunningFhe)),
         ServerState::CompletedFhe => Ok(Json(ServerStateView::CompletedFhe)),
         _ => Err(Error::WrongServerState {
             expect: ServerStateView::ReadyForRunning.to_string(),

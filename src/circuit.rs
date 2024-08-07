@@ -3,7 +3,6 @@ use phantom_zone::{
     aggregate_server_key_shares, KeySwitchWithId, ParameterSelector, SampleExtractor,
 };
 use rayon::prelude::*;
-use tokio::sync::oneshot::Sender;
 
 use crate::{time, Cipher, FheUint8, ServerKeyShare};
 
