@@ -84,7 +84,7 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerState>, ErrorR
     let s2 = (*ss).clone();
     let mut ss = ss.lock().await;
 
-    match &mut ss.state {
+    match &ss.state {
         ServerState::ReadyForRunning => {
             let (server_key_shares, ciphers) = ss.get_ciphers_and_sks()?;
 
