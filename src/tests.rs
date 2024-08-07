@@ -288,7 +288,7 @@ async fn full_flow() {
 
 #[test]
 fn test_circuit() {
-    use karma_rs_fhe_lib::karma_add;
+    use compiled::karma_add;
     use phantom_zone::{
         aggregate_server_key_shares, set_common_reference_seed, set_parameter_set, KeySwitchWithId,
         ParameterSelector, SampleExtractor,

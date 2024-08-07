@@ -1,4 +1,8 @@
-use crate::{karma_rs_fhe_lib::karma_add, types::Word, CircuitInput, CircuitOutput};
+use crate::{
+    compiled::{karma_add, karma_sub},
+    types::Word,
+    CircuitInput, CircuitOutput,
+};
 use itertools::Itertools;
 use phantom_zone::{aggregate_server_key_shares, set_parameter_set, ParameterSelector};
 use rayon::prelude::*;
@@ -48,8 +52,8 @@ pub(crate) fn evaluate_circuit(ciphers: &[CircuitInput]) -> CircuitOutput {
             let sent = sum_fhe_dyn(my_ciphers);
             let received = ciphers.iter().map(|enc| enc[my_id].clone()).collect_vec();
             let received = sum_fhe_dyn(&received);
-            // &received - &sent
-            received
+            set_parameter_set(PARAMETER);
+            karma_sub(&received, &sent)
         })
         .collect_into_vec(&mut outs);
     CircuitOutput::new(outs)

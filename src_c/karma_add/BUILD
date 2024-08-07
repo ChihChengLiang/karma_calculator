@@ -5,33 +5,33 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 licenses(["notice"])
 
 fhe_rust_library(
-    name = "karma_rs_fhe_lib",
+    name = "karma_add_rs_fhe_lib",
     lut_size = 0,
-    src = "karma.cc",
-    hdrs = ["karma.h"],
+    src = "karma_add.cc",
+    hdrs = ["karma_add.h"],
 )
 
 rust_library(
-    name = "karma_rs_lib",
-    srcs = ["karma_rs_lib.rs"],
+    name = "karma_add_rs_lib",
+    srcs = ["karma_add_rs_lib.rs"],
     deps = [
-        ":karma_rs_fhe_lib",
+        ":karma_add_rs_fhe_lib",
         "@crate_index//:phantom-zone",
     ],
 )
 
 rust_binary(
-    name = "karma_rs_main",
-    srcs = ["karma_rs_lib.rs"],
+    name = "karma_add_rs_main",
+    srcs = ["karma_add_rs_lib.rs"],
     deps = [
-        ":karma_rs_fhe_lib",
+        ":karma_add_rs_fhe_lib",
         "@crate_index//:phantom-zone",
     ],
 )
 
 exports_files(
     [
-        "karma.h",
-        "karma.cc",
+        "karma_add.h",
+        "karma_add.cc",
     ],
 )

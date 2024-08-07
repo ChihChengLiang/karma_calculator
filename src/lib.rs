@@ -1,9 +1,9 @@
 mod circuit;
 mod client;
 mod dashboard;
-mod karma_rs_fhe_lib;
 mod server;
 mod types;
+mod compiled;
 
 pub use client::WebClient;
 pub use server::{rocket, setup};
