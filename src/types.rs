@@ -8,6 +8,7 @@ use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
 use rocket::Responder;
 use std::collections::HashMap;
+use std::fmt::Display;
 use tokio::sync::oneshot::Receiver;
 
 use thiserror::Error;
@@ -78,37 +79,48 @@ pub(crate) enum ServerState {
     CompletedFhe,
 }
 
-impl PartialEq for ServerState {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::RunningFhe { .. }, Self::RunningFhe { .. }) => true,
-            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
-        }
-    }
-}
-
-impl std::fmt::Display for ServerState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ServerState::RunningFhe { .. } => write!(f, "FHE is running"),
-            _ => write!(f, "{:?}", self),
-        }
-    }
-}
-
 impl ServerState {
-    pub(crate) fn ensure(&self, expect: Self) -> Result<&Self, Error> {
-        if *self == expect {
+    fn ensure(&self, expect: ServerStateView) -> Result<&Self, Error> {
+        let current: ServerStateView = self.into();
+        if current == expect {
             Ok(self)
         } else {
             Err(Error::WrongServerState {
                 expect: expect.to_string(),
-                got: self.to_string(),
+                got: current.to_string(),
             })
         }
     }
-    pub(crate) fn transit(&mut self, next: Self) {
+    fn transit(&mut self, next: Self) {
         *self = next;
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) enum ServerStateView {
+    ReadyForJoining,
+    ReadyForInputs,
+    ReadyForRunning,
+    RunningFhe,
+    CompletedFhe,
+}
+
+impl Display for ServerStateView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[[ {:?} ]]", self)
+    }
+}
+
+impl From<&ServerState> for ServerStateView {
+    fn from(state: &ServerState) -> Self {
+        use ServerState::*;
+        match state {
+            ReadyForJoining => Self::ReadyForJoining,
+            ReadyForInputs => Self::ReadyForInputs,
+            ReadyForRunning => Self::ReadyForRunning,
+            RunningFhe { .. } => Self::RunningFhe,
+            CompletedFhe => Self::CompletedFhe,
+        }
     }
 }
 
@@ -142,7 +154,7 @@ impl ServerStorage {
         RegisteredUser::new(user_id, name)
     }
 
-    pub(crate) fn ensure(&self, state: ServerState) -> Result<(), Error> {
+    pub(crate) fn ensure(&self, state: ServerStateView) -> Result<(), Error> {
         self.state.ensure(state)?;
         Ok(())
     }

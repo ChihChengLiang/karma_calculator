@@ -2,7 +2,7 @@ use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
     CipherSubmission, DecryptionShareSubmission, Error, ErrorResponse, MutexServerStorage,
-    ServerState, ServerStorage, UserStorage,
+    ServerState, ServerStateView, ServerStorage, UserStorage,
 };
 use crate::{time, DecryptionShare, Seed, UserId};
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8};
@@ -26,7 +26,7 @@ async fn register(
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<RegisteredUser>, ErrorResponse> {
     let mut ss = ss.lock().await;
-    ss.ensure(ServerState::ReadyForJoining)?;
+    ss.ensure(ServerStateView::ReadyForJoining)?;
     let user = ss.add_user(name);
 
     Ok(Json(user))
@@ -37,7 +37,7 @@ async fn conclude_registration(
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<Dashboard>, ErrorResponse> {
     let mut ss = ss.lock().await;
-    ss.ensure(ServerState::ReadyForJoining)?;
+    ss.ensure(ServerStateView::ReadyForJoining)?;
     ss.transit(ServerState::ReadyForInputs);
     let dashboard = ss.get_dashboard();
     Ok(Json(dashboard))
@@ -57,7 +57,7 @@ async fn submit(
 ) -> Result<Json<UserId>, ErrorResponse> {
     let mut ss = ss.lock().await;
 
-    ss.ensure(ServerState::ReadyForInputs)?;
+    ss.ensure(ServerStateView::ReadyForInputs)?;
 
     let CipherSubmission {
         user_id,
@@ -134,8 +134,8 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorRespon
         },
         ServerState::CompletedFhe => Ok(Json("FHE already complete".to_string())),
         _ => Err(Error::WrongServerState {
-            expect: ServerState::ReadyForRunning.to_string(),
-            got: ss.state.to_string(),
+            expect: ServerStateView::ReadyForRunning.to_string(),
+            got: ServerStateView::from(&ss.state).to_string(),
         }
         .into()),
     }
@@ -146,7 +146,7 @@ async fn get_fhe_output(
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<Vec<FheUint8>>, ErrorResponse> {
     let ss = ss.lock().await;
-    ss.ensure(ServerState::CompletedFhe)?;
+    ss.ensure(ServerStateView::CompletedFhe)?;
     Ok(Json(ss.fhe_outputs.to_vec()))
 }
 

@@ -1,39 +1,10 @@
 use itertools::Itertools;
 use rocket::serde::{Deserialize, Serialize};
-use std::fmt::Display;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 
-use crate::types::{ServerState, UserRecord};
+use crate::types::{ServerStateView, UserRecord};
 use crate::UserId;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) enum ServerStatus {
-    ReadyForJoining,
-    ReadyForInputs,
-    ReadyForRunning,
-    RunningFhe,
-    CompletedFhe,
-}
-
-impl Display for ServerStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[[ {:?} ]]", self)
-    }
-}
-
-impl From<&ServerState> for ServerStatus {
-    fn from(state: &ServerState) -> Self {
-        use ServerState::*;
-        match state {
-            ReadyForJoining => Self::ReadyForJoining,
-            ReadyForInputs => Self::ReadyForInputs,
-            ReadyForRunning => Self::ReadyForRunning,
-            RunningFhe { .. } => Self::RunningFhe,
-            CompletedFhe => Self::CompletedFhe,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -84,11 +55,11 @@ impl From<&UserRecord> for RegisteredUser {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Dashboard {
-    status: ServerStatus,
+    status: ServerStateView,
     users: Vec<RegisteredUser>,
 }
 impl Dashboard {
-    pub(crate) fn new(status: &ServerStatus, users: &[RegisteredUser]) -> Self {
+    pub(crate) fn new(status: &ServerStateView, users: &[RegisteredUser]) -> Self {
         Self {
             status: status.clone(),
             users: users.to_vec(),
@@ -104,11 +75,11 @@ impl Dashboard {
 
     /// An API for client to check server state
     pub fn is_concluded(&self) -> bool {
-        self.status == ServerStatus::ReadyForInputs
+        self.status == ServerStateView::ReadyForInputs
     }
 
     pub fn is_fhe_complete(&self) -> bool {
-        self.status == ServerStatus::CompletedFhe
+        self.status == ServerStateView::CompletedFhe
     }
 
     pub fn print_presentation(&self) {
