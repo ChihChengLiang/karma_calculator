@@ -8,6 +8,7 @@ use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
 use rocket::Responder;
 use std::collections::HashMap;
+use tokio::sync::oneshot::Receiver;
 
 use thiserror::Error;
 
@@ -38,6 +39,8 @@ pub(crate) enum Error {
     /// Temporary here
     #[error("Output not ready")]
     OutputNotReady,
+    #[error("Oneshot channel: {0}")]
+    ChannelError(String),
 }
 
 #[derive(Responder)]
@@ -51,9 +54,9 @@ pub(crate) enum ErrorResponse {
 impl From<Error> for ErrorResponse {
     fn from(error: Error) -> Self {
         match error {
-            Error::WrongServerState { .. } | Error::CipherNotFound { .. } => {
-                ErrorResponse::ServerError(error.to_string())
-            }
+            Error::WrongServerState { .. }
+            | Error::CipherNotFound { .. }
+            | Error::ChannelError(..) => ErrorResponse::ServerError(error.to_string()),
             Error::DecryptionShareNotFound { .. }
             | Error::UnregisteredUser { .. }
             | Error::OutputNotReady => ErrorResponse::NotFoundError(error.to_string()),
@@ -70,7 +73,7 @@ pub(crate) enum ServerState {
     ReadyForInputs,
     ReadyForRunning,
     RunningFhe {
-        blocking_task: tokio::task::JoinHandle<Vec<FheUint8>>,
+        rx: Receiver<Vec<FheUint8>>,
     },
     CompletedFhe,
 }

@@ -11,6 +11,7 @@ use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
 use rocket::{get, post, routes};
 use rocket::{Build, Rocket, State};
+use tokio::sync::oneshot;
 
 #[get("/param")]
 async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
@@ -79,8 +80,7 @@ async fn submit(
 #[post("/run")]
 async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorResponse> {
     let mut ss = ss.lock().await;
-    let prev_s = std::mem::replace(&mut ss.state, ServerState::ReadyForJoining);
-    match prev_s {
+    match &mut ss.state {
         ServerState::ReadyForRunning => {
             println!("Checking if we have all user submissions");
             let mut server_key_shares = vec![];
@@ -96,7 +96,8 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorRespon
                 }
             }
             println!("We have all submissions!");
-            let blocking_task = tokio::task::spawn_blocking(move || {
+            let (tx, rx) = oneshot::channel::<Vec<FheUint8>>();
+            tokio::task::spawn_blocking(move || {
                 rayon::ThreadPoolBuilder::new()
                     .build_scoped(
                         // Initialize thread-local storage parameters
@@ -110,36 +111,33 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorRespon
                                 // Long running, global variable change
                                 derive_server_key(&server_key_shares);
                                 // Long running
-                                time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit")
+                                time!(|| evaluate_circuit(&ciphers, tx), "Evaluating Circuit")
                             })
                         },
                     )
                     .unwrap()
             });
-            ss.transit(ServerState::RunningFhe { blocking_task });
+            ss.transit(ServerState::RunningFhe { rx });
             Ok(Json("Awesome".to_string()))
         }
-        ServerState::RunningFhe { blocking_task } => {
-            if blocking_task.is_finished() {
+        ServerState::RunningFhe { rx } => match rx.try_recv() {
+            Ok(output) => {
+                ss.fhe_outputs = output;
                 ss.transit(ServerState::CompletedFhe);
-                ss.fhe_outputs = blocking_task.await.unwrap();
-
                 println!("FHE computation completed");
                 Ok(Json("FHE complete".to_string()))
-            } else {
-                ss.transit(ServerState::RunningFhe { blocking_task });
+            }
+            Err(oneshot::error::TryRecvError::Empty) => {
                 Ok(Json("FHE is still running".to_string()))
             }
-        }
+            Err(err) => Err(Error::ChannelError(err.to_string()).into()),
+        },
         ServerState::CompletedFhe => Ok(Json("FHE already complete".to_string())),
-        _ => {
-            ss.transit(prev_s);
-            Err(Error::WrongServerState {
-                expect: ServerState::ReadyForRunning.to_string(),
-                got: ss.state.to_string(),
-            }
-            .into())
+        _ => Err(Error::WrongServerState {
+            expect: ServerState::ReadyForRunning.to_string(),
+            got: ss.state.to_string(),
         }
+        .into()),
     }
 }
 
