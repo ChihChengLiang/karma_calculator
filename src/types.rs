@@ -9,6 +9,7 @@ use rocket::tokio::sync::Mutex;
 use rocket::Responder;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::sync::Arc;
 use tokio::sync::oneshot::Receiver;
 
 use thiserror::Error;
@@ -124,7 +125,7 @@ impl From<&ServerState> for ServerStateView {
     }
 }
 
-pub(crate) type MutexServerStorage = Mutex<ServerStorage>;
+pub(crate) type MutexServerStorage = Arc<Mutex<ServerStorage>>;
 
 #[derive(Debug)]
 pub(crate) struct ServerStorage {

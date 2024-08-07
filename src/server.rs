@@ -1,3 +1,6 @@
+use std::ops::Deref;
+use std::sync::Arc;
+
 use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
@@ -11,7 +14,7 @@ use rocket::serde::json::Json;
 use rocket::serde::msgpack::MsgPack;
 use rocket::{get, post, routes};
 use rocket::{Build, Rocket, State};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
 
 #[get("/param")]
 async fn get_param(ss: &State<MutexServerStorage>) -> Json<Seed> {
@@ -81,7 +84,9 @@ async fn submit(
 /// The admin runs the fhe computation
 #[post("/run")]
 async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, ErrorResponse> {
+    let s2 = (*ss).clone();
     let mut ss = ss.lock().await;
+
     match &mut ss.state {
         ServerState::ReadyForRunning => {
             println!("Checking if we have all user submissions");
@@ -98,11 +103,17 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
                         },
                         // Run parallel code under this pool
                         |pool| {
-                            pool.install(|| {
+                            pool.install(|| async move {
                                 // Long running, global variable change
                                 derive_server_key(&server_key_shares);
                                 // Long running
-                                time!(|| evaluate_circuit(&ciphers, tx), "Evaluating Circuit")
+                                let output =
+                                    time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit");
+
+                                let mut ss = s2.lock().await;
+                                ss.fhe_outputs = output;
+                                ss.transit(ServerState::CompletedFhe);
+                                println!("FHE computation completed");
                             })
                         },
                     )
@@ -187,7 +198,9 @@ pub fn rocket() -> Rocket<Build> {
     setup(&seed);
 
     rocket::build()
-        .manage(MutexServerStorage::new(ServerStorage::new(seed)))
+        .manage(MutexServerStorage::new(Mutex::new(ServerStorage::new(
+            seed,
+        ))))
         .mount(
             "/",
             routes![
