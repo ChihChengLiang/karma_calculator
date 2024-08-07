@@ -25,7 +25,7 @@ pub type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKey
 >;
 /// number of users + total
 pub type Score = PlainWord;
-pub type Word = KeySwitchedWord;
+pub type Word = Vec<FheBool>;
 /// Decryption share for a word from one user.
 pub type DecryptionShare = Vec<u64>;
 pub type ClientKey = phantom_zone::ClientKey;
@@ -34,7 +34,6 @@ pub type UserId = usize;
 pub type PlainWord = u32;
 pub type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 pub type UnseededWord = NonInteractiveBatchedFheBools<Vec<Vec<u64>>>;
-pub type KeySwitchedWord = Vec<FheBool>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Payload {
@@ -50,6 +49,11 @@ impl Payload {
         Self { karma_sent: cipher }
     }
 
+    /// Unpack ciphers
+    ///
+    /// 1. Decompression: A cipher is a matrix generated from a seed. The seed is sent through the network as a compression. By calling the `unseed` method we recovered the matrix here.
+    /// 2. Key Switch: We reencrypt the cipher with the server key for the computation. We need to specify the original signer of the cipher.
+    /// 3. Extract: A user's encrypted inputs are packed in a batched struct. We call `extract_all` method to convert it to unbatched word.
     pub(crate) fn unpack(&self, user_id: UserId) -> Vec<Word> {
         self.karma_sent
             .iter()
@@ -62,13 +66,13 @@ impl Payload {
     }
 }
 
-pub fn encrypt_plain(ck: &ClientKey, plain: PlainWord) -> EncryptedWord {
+fn encrypt_plain(ck: &ClientKey, plain: PlainWord) -> EncryptedWord {
     let plain = u64_to_binary::<32>(plain as u64);
     let cipher = ck.encrypt(plain.as_slice());
     return cipher;
 }
 
-pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &KeySwitchedWord) -> DecryptionShare {
+pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &Word) -> DecryptionShare {
     let dec_shares = fhe_output
         .iter()
         .map(|out_bit| ck.gen_decryption_share(out_bit))
@@ -76,11 +80,7 @@ pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &KeySwitchedWord) -> De
     dec_shares
 }
 
-pub fn decrypt_word(
-    ck: &ClientKey,
-    fhe_output: &KeySwitchedWord,
-    shares: &[DecryptionShare],
-) -> PlainWord {
+pub fn decrypt_word(ck: &ClientKey, fhe_output: &Word, shares: &[DecryptionShare]) -> PlainWord {
     let decrypted_bits = fhe_output
         .iter()
         .zip(shares)

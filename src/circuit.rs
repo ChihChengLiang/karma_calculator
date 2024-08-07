@@ -33,10 +33,6 @@ pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
 
 /// Server work
 pub(crate) fn evaluate_circuit(ciphers: &[Payload]) -> Vec<Word> {
-    // Preprocess ciphers
-    // 1. Decompression: A cipher is a matrix generated from a seed. The seed is sent through the network as a compression. By calling the `unseed` method we recovered the matrix here.
-    // 2. Key Switch: We reencrypt the cipher with the server key for the computation. We need to specify the original signer of the cipher.
-    // 3. Extract: A user's encrypted inputs are packed in `BatchedFheUint8` struct. We call `extract_all` method to convert it to `Vec<FheUint8>` for easier manipulation.
     let ciphers = ciphers
         .iter()
         .enumerate()
