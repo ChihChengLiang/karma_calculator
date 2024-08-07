@@ -92,8 +92,9 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
             println!("Checking if we have all user submissions");
             let (server_key_shares, ciphers) = ss.get_ciphers_and_sks()?;
             println!("We have all submissions!");
-            let (tx, rx) = oneshot::channel::<Vec<FheUint8>>();
-            tokio::task::spawn_blocking(move || {
+
+            tokio::task::spawn_blocking(move || async move {
+                let (tx, rx) = oneshot::channel::<Vec<FheUint8>>();
                 rayon::ThreadPoolBuilder::new()
                     .build_scoped(
                         // Initialize thread-local storage parameters
@@ -103,35 +104,40 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
                         },
                         // Run parallel code under this pool
                         |pool| {
-                            pool.install(|| async move {
+                            pool.install(|| {
                                 // Long running, global variable change
                                 derive_server_key(&server_key_shares);
                                 // Long running
                                 let output =
                                     time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit");
 
-                                let mut ss = s2.lock().await;
-                                ss.fhe_outputs = output;
-                                ss.transit(ServerState::CompletedFhe);
-                                println!("FHE computation completed");
+                                tx.send(output).unwrap();
                             })
                         },
                     )
-                    .unwrap()
-            });
-            ss.transit(ServerState::RunningFhe { rx });
-            Ok(Json(ServerStateView::RunningFhe))
-        }
-        ServerState::RunningFhe { rx } => match rx.try_recv() {
-            Ok(output) => {
+                    .unwrap();
+                let output = rx.await.unwrap();
+                let mut ss = s2.lock().await;
                 ss.fhe_outputs = output;
                 ss.transit(ServerState::CompletedFhe);
                 println!("FHE computation completed");
-                Ok(Json(ServerStateView::CompletedFhe))
-            }
-            Err(oneshot::error::TryRecvError::Empty) => Ok(Json(ServerStateView::RunningFhe)),
-            Err(err) => Err(Error::ChannelError(err.to_string()).into()),
-        },
+            });
+            ss.transit(ServerState::RunningFhe);
+            Ok(Json(ServerStateView::RunningFhe))
+        }
+        ServerState::RunningFhe => {
+            Ok(Json(ServerStateView::RunningFhe))
+        }
+        // ServerState::RunningFhe { rx } => match rx.try_recv() {
+        //     Ok(output) => {
+        //         ss.fhe_outputs = output;
+        //         ss.transit(ServerState::CompletedFhe);
+        //         println!("FHE computation completed");
+        //         Ok(Json(ServerStateView::CompletedFhe))
+        //     }
+        //     Err(oneshot::error::TryRecvError::Empty) => Ok(Json(ServerStateView::RunningFhe)),
+        //     Err(err) => Err(Error::ChannelError(err.to_string()).into()),
+        // },
         ServerState::CompletedFhe => Ok(Json(ServerStateView::CompletedFhe)),
         _ => Err(Error::WrongServerState {
             expect: ServerStateView::ReadyForRunning.to_string(),

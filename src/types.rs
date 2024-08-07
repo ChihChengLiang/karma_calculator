@@ -74,9 +74,7 @@ pub(crate) enum ServerState {
     /// We can now accept ciphertexts, which depends on the number of users.
     ReadyForInputs,
     ReadyForRunning,
-    RunningFhe {
-        rx: Receiver<Vec<FheUint8>>,
-    },
+    RunningFhe,
     CompletedFhe,
 }
 
