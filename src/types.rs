@@ -32,8 +32,7 @@ pub type ClientKey = phantom_zone::ClientKey;
 pub type UserId = usize;
 
 pub type PlainWord = u32;
-pub type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
-pub type UnseededWord = NonInteractiveBatchedFheBools<Vec<Vec<u64>>>;
+type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitInput {
