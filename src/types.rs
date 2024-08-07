@@ -113,10 +113,18 @@ fn gen_decryption_shares(ck: &ClientKey, fhe_output: &Word) -> DecryptionShare {
 }
 
 fn decrypt_word(ck: &ClientKey, fhe_output: &Word, shares: &[DecryptionShare]) -> PlainWord {
+    // A DecryptionShare is user i's contribution to word j.
+    // To decrypt word j at bit position k. We need to extract the position k of user i's share.
     let decrypted_bits = fhe_output
         .iter()
-        .zip(shares)
-        .map(|(out_bit, share)| ck.aggregate_decryption_shares(out_bit, share))
+        .enumerate()
+        .map(|(bit_k, fhe_bit)| {
+            let shares_for_bit_k = shares
+                .iter()
+                .map(|user_share| user_share[bit_k])
+                .collect_vec();
+            ck.aggregate_decryption_shares(fhe_bit, &shares_for_bit_k)
+        })
         .collect_vec();
     recover(&decrypted_bits)
 }
