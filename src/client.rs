@@ -4,7 +4,7 @@ use crate::{
         CipherSubmission, DecryptionShare, DecryptionShareSubmission, Seed, ServerKeyShare,
         ServerState, UserId,
     },
-    Payload, Word,
+    CircuitInput, Word,
 };
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -138,7 +138,7 @@ impl WebClient {
     pub async fn submit_cipher(
         &self,
         user_id: UserId,
-        cipher_text: &Payload,
+        cipher_text: &CircuitInput,
         sks: &ServerKeyShare,
     ) -> Result<UserId, Error> {
         let submission = CipherSubmission {

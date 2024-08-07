@@ -1,4 +1,4 @@
-use crate::{karma_rs_fhe_lib::karma_add, types::Word, Payload};
+use crate::{karma_rs_fhe_lib::karma_add, types::Word, CircuitInput};
 use itertools::Itertools;
 use phantom_zone::{aggregate_server_key_shares, set_parameter_set, ParameterSelector};
 use rayon::prelude::*;
@@ -32,7 +32,7 @@ pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
 }
 
 /// Server work
-pub(crate) fn evaluate_circuit(ciphers: &[Payload]) -> Vec<Word> {
+pub(crate) fn evaluate_circuit(ciphers: &[CircuitInput]) -> Vec<Word> {
     let ciphers = ciphers
         .iter()
         .enumerate()

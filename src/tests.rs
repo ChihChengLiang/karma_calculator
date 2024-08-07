@@ -33,7 +33,7 @@ struct User {
     scores: Option<Vec<PlainWord>>,
     // step 3: gen key and cipher
     server_key: Option<ServerKeyShare>,
-    cipher: Option<Payload>,
+    cipher: Option<CircuitInput>,
     // step 4: get FHE output
     fhe_out: Option<Vec<Word>>,
     // step 5: derive decryption shares
@@ -83,7 +83,7 @@ impl User {
         let scores = self.scores.as_ref().unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
 
-        let cipher = Payload::from_plain(ck, &scores);
+        let cipher = CircuitInput::from_plain(ck, &scores);
         self.cipher = Some(cipher);
         self
     }

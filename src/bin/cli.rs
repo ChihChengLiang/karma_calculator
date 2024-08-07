@@ -5,8 +5,8 @@ use tabled::{settings::Style, Table, Tabled};
 use clap::command;
 use itertools::Itertools;
 use karma_calculator::{
-    decrypt_word, gen_decryption_shares, setup, DecryptionSharesMap, Payload, Score, ServerState,
-    WebClient, Word,
+    decrypt_word, gen_decryption_shares, setup, CircuitInput, DecryptionSharesMap, Score,
+    ServerState, WebClient, Word,
 };
 
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -249,13 +249,13 @@ async fn cmd_score_encrypt(
     }
     println!("I gave out {total} karma");
 
-    let payload = Payload::from_plain(ck, &scores);
+    let ci = CircuitInput::from_plain(ck, &scores);
 
     println!("Generating server key share");
     let sks = gen_server_key_share(*user_id, total_users, ck);
 
     println!("Submit the cipher and the server key share");
-    client.submit_cipher(*user_id, &payload, &sks).await?;
+    client.submit_cipher(*user_id, &ci, &sks).await?;
     Ok(scores)
 }
 

@@ -36,11 +36,11 @@ pub type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 pub type UnseededWord = NonInteractiveBatchedFheBools<Vec<Vec<u64>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Payload {
+pub struct CircuitInput {
     karma_sent: Vec<EncryptedWord>,
 }
 
-impl Payload {
+impl CircuitInput {
     pub fn from_plain(ck: &ClientKey, karma: &[PlainWord]) -> Self {
         let cipher = karma
             .iter()
@@ -212,7 +212,7 @@ impl ServerStorage {
 
     pub(crate) fn get_ciphers_and_sks(
         &mut self,
-    ) -> Result<(Vec<ServerKeyShare>, Vec<Payload>), Error> {
+    ) -> Result<(Vec<ServerKeyShare>, Vec<CircuitInput>), Error> {
         let mut server_key_shares = vec![];
         let mut ciphers = vec![];
         for (user_id, user) in self.users.iter_mut().enumerate() {
@@ -242,12 +242,12 @@ pub(crate) struct UserRecord {
 #[derive(Debug, Clone)]
 pub(crate) enum UserStorage {
     Empty,
-    CipherSks(Payload, Box<ServerKeyShare>),
+    CipherSks(CircuitInput, Box<ServerKeyShare>),
     DecryptionShare(Option<Vec<DecryptionShare>>),
 }
 
 impl UserStorage {
-    pub(crate) fn get_cipher_sks(&self) -> Option<(&Payload, &ServerKeyShare)> {
+    pub(crate) fn get_cipher_sks(&self) -> Option<(&CircuitInput, &ServerKeyShare)> {
         match self {
             Self::CipherSks(cipher, sks) => Some((cipher, sks)),
             _ => None,
@@ -271,7 +271,7 @@ pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 #[serde(crate = "rocket::serde")]
 pub(crate) struct CipherSubmission {
     pub(crate) user_id: UserId,
-    pub(crate) cipher_text: Payload,
+    pub(crate) cipher_text: CircuitInput,
     pub(crate) sks: ServerKeyShare,
 }
 
