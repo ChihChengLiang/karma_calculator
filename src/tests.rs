@@ -6,7 +6,7 @@ use phantom_zone::{
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::sleep;
-use types::ServerStateView;
+use types::ServerState;
 
 use crate::*;
 use anyhow::Error;
@@ -239,7 +239,7 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
 
     // Admin runs the FHE computation
     client.trigger_fhe_run().await.unwrap();
-    while client.trigger_fhe_run().await.unwrap() != ServerStateView::CompletedFhe {
+    while client.trigger_fhe_run().await.unwrap() != ServerState::CompletedFhe {
         sleep(Duration::from_secs(1)).await
     }
 

@@ -2,7 +2,7 @@ use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
     CipherSubmission, DecryptionShareSubmission, Error, ErrorResponse, MutexServerStorage,
-    ServerState, ServerStateView, ServerStorage, UserStorage,
+    ServerState, ServerStorage, UserStorage,
 };
 use crate::{time, DecryptionShare, Seed, UserId};
 use phantom_zone::{set_common_reference_seed, set_parameter_set, FheUint8};
@@ -26,7 +26,7 @@ async fn register(
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<RegisteredUser>, ErrorResponse> {
     let mut ss = ss.lock().await;
-    ss.ensure(ServerStateView::ReadyForJoining)?;
+    ss.ensure(ServerState::ReadyForJoining)?;
     let user = ss.add_user(name);
     println!("{name} just joined!");
 
@@ -38,7 +38,7 @@ async fn conclude_registration(
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<Dashboard>, ErrorResponse> {
     let mut ss = ss.lock().await;
-    ss.ensure(ServerStateView::ReadyForJoining)?;
+    ss.ensure(ServerState::ReadyForJoining)?;
     ss.transit(ServerState::ReadyForInputs);
     println!("Registration closed!");
     let dashboard = ss.get_dashboard();
@@ -59,7 +59,7 @@ async fn submit(
 ) -> Result<Json<UserId>, ErrorResponse> {
     let mut ss = ss.lock().await;
 
-    ss.ensure(ServerStateView::ReadyForInputs)?;
+    ss.ensure(ServerState::ReadyForInputs)?;
 
     let CipherSubmission {
         user_id,
@@ -80,7 +80,7 @@ async fn submit(
 
 /// The admin runs the fhe computation
 #[post("/run")]
-async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, ErrorResponse> {
+async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerState>, ErrorResponse> {
     let s2 = (*ss).clone();
     let mut ss = ss.lock().await;
 
@@ -115,13 +115,13 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
                     .unwrap();
             });
             ss.transit(ServerState::RunningFhe);
-            Ok(Json(ServerStateView::RunningFhe))
+            Ok(Json(ServerState::RunningFhe))
         }
-        ServerState::RunningFhe => Ok(Json(ServerStateView::RunningFhe)),
-        ServerState::CompletedFhe => Ok(Json(ServerStateView::CompletedFhe)),
+        ServerState::RunningFhe => Ok(Json(ServerState::RunningFhe)),
+        ServerState::CompletedFhe => Ok(Json(ServerState::CompletedFhe)),
         _ => Err(Error::WrongServerState {
-            expect: ServerStateView::ReadyForRunning.to_string(),
-            got: ServerStateView::from(&ss.state).to_string(),
+            expect: ServerState::ReadyForRunning.to_string(),
+            got: ss.state.to_string(),
         }
         .into()),
     }
@@ -132,7 +132,7 @@ async fn get_fhe_output(
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<Vec<FheUint8>>, ErrorResponse> {
     let ss = ss.lock().await;
-    ss.ensure(ServerStateView::CompletedFhe)?;
+    ss.ensure(ServerState::CompletedFhe)?;
     Ok(Json(ss.fhe_outputs.to_vec()))
 }
 

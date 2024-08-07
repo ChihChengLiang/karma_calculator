@@ -63,8 +63,8 @@ impl From<Error> for ErrorResponse {
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum ServerState {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ServerState {
     /// Users are allowed to join the computation
     ReadyForJoining,
     /// The number of user is determined now.
@@ -76,14 +76,13 @@ pub(crate) enum ServerState {
 }
 
 impl ServerState {
-    fn ensure(&self, expect: ServerStateView) -> Result<&Self, Error> {
-        let current: ServerStateView = self.into();
-        if current == expect {
+    fn ensure(&self, expect: Self) -> Result<&Self, Error> {
+        if *self == expect {
             Ok(self)
         } else {
             Err(Error::WrongServerState {
                 expect: expect.to_string(),
-                got: current.to_string(),
+                got: self.to_string(),
             })
         }
     }
@@ -92,31 +91,9 @@ impl ServerState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ServerStateView {
-    ReadyForJoining,
-    ReadyForInputs,
-    ReadyForRunning,
-    RunningFhe,
-    CompletedFhe,
-}
-
-impl Display for ServerStateView {
+impl Display for ServerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[[ {:?} ]]", self)
-    }
-}
-
-impl From<&ServerState> for ServerStateView {
-    fn from(state: &ServerState) -> Self {
-        use ServerState::*;
-        match state {
-            ReadyForJoining => Self::ReadyForJoining,
-            ReadyForInputs => Self::ReadyForInputs,
-            ReadyForRunning => Self::ReadyForRunning,
-            RunningFhe { .. } => Self::RunningFhe,
-            CompletedFhe => Self::CompletedFhe,
-        }
     }
 }
 
@@ -150,7 +127,7 @@ impl ServerStorage {
         RegisteredUser::new(user_id, name)
     }
 
-    pub(crate) fn ensure(&self, state: ServerStateView) -> Result<(), Error> {
+    pub(crate) fn ensure(&self, state: ServerState) -> Result<(), Error> {
         self.state.ensure(state)?;
         Ok(())
     }
@@ -189,10 +166,7 @@ impl ServerStorage {
     }
 
     pub(crate) fn get_dashboard(&self) -> Dashboard {
-        Dashboard::new(
-            &(&self.state).into(),
-            &self.users.iter().map_into().collect_vec(),
-        )
+        Dashboard::new(&self.state, &self.users.iter().map_into().collect_vec())
     }
 }
 

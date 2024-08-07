@@ -4,7 +4,7 @@ use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
-use karma_calculator::{setup, DecryptionSharesMap, ServerStateView, WebClient};
+use karma_calculator::{setup, DecryptionSharesMap, ServerState, WebClient};
 
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -269,7 +269,7 @@ async fn cmd_download_output(
     ck: &ClientKey,
 ) -> Result<(Vec<FheUint8>, HashMap<(usize, usize), Vec<u64>>), Error> {
     let resp = client.trigger_fhe_run().await?;
-    if !matches!(resp, ServerStateView::CompletedFhe) {
+    if !matches!(resp, ServerState::CompletedFhe) {
         bail!("FHE is still running")
     }
 

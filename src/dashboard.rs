@@ -3,7 +3,7 @@ use rocket::serde::{Deserialize, Serialize};
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 
-use crate::types::{ServerStateView, UserRecord};
+use crate::types::{ServerState, UserRecord};
 use crate::UserId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,11 +55,11 @@ impl From<&UserRecord> for RegisteredUser {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Dashboard {
-    status: ServerStateView,
+    status: ServerState,
     users: Vec<RegisteredUser>,
 }
 impl Dashboard {
-    pub(crate) fn new(status: &ServerStateView, users: &[RegisteredUser]) -> Self {
+    pub(crate) fn new(status: &ServerState, users: &[RegisteredUser]) -> Self {
         Self {
             status: status.clone(),
             users: users.to_vec(),
@@ -75,11 +75,11 @@ impl Dashboard {
 
     /// An API for client to check server state
     pub fn is_concluded(&self) -> bool {
-        self.status == ServerStateView::ReadyForInputs
+        self.status == ServerState::ReadyForInputs
     }
 
     pub fn is_fhe_complete(&self) -> bool {
-        self.status == ServerStateView::CompletedFhe
+        self.status == ServerState::CompletedFhe
     }
 
     pub fn print_presentation(&self) {
