@@ -2,7 +2,7 @@ use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
     DecryptionShareSubmission, Error, ErrorResponse, InputSubmission, MutexServerStorage,
-    ServerState, ServerStorage, UserStorage, Word,
+    ServerState, ServerStorage, UserStorage,
 };
 use crate::{time, CircuitOutput, DecryptionShare, Seed, UserId};
 use phantom_zone::{set_common_reference_seed, set_parameter_set};

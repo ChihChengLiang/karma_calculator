@@ -3,8 +3,7 @@ use phantom_zone::NonInteractiveSeededFheBools;
 use phantom_zone::{
     evaluator::NonInteractiveMultiPartyCrs,
     keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare, parameters::BoolParameters,
-    Encryptor, FheBool, KeySwitchWithId, MultiPartyDecryptor, NonInteractiveBatchedFheBools,
-    SampleExtractor,
+    Encryptor, FheBool, KeySwitchWithId, MultiPartyDecryptor, SampleExtractor,
 };
 use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
