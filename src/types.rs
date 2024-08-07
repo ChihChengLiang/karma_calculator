@@ -24,7 +24,6 @@ pub type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKey
     NonInteractiveMultiPartyCrs<Seed>,
 >;
 /// number of users + total
-pub type Ciphers = Vec<EncryptedWord>;
 pub type Score = PlainWord;
 pub type Word = KeySwitchedWord;
 /// Decryption share for a word from one user.
@@ -32,27 +31,41 @@ pub type DecryptionShare = Vec<u64>;
 pub type ClientKey = phantom_zone::ClientKey;
 pub type UserId = usize;
 
-pub(crate) type MutexServerStatus = Mutex<ServerStatus>;
-
 pub type PlainWord = u32;
 pub type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 pub type UnseededWord = NonInteractiveBatchedFheBools<Vec<Vec<u64>>>;
 pub type KeySwitchedWord = Vec<FheBool>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Payload {
+    karma_sent: Vec<EncryptedWord>,
+}
+
+impl Payload {
+    pub fn from_plain(ck: &ClientKey, karma: &[PlainWord]) -> Self {
+        let cipher = karma
+            .iter()
+            .map(|score| encrypt_plain(ck, *score))
+            .collect_vec();
+        Self { karma_sent: cipher }
+    }
+
+    pub(crate) fn unpack(&self, user_id: UserId) -> Vec<Word> {
+        self.karma_sent
+            .iter()
+            .map(|word| {
+                word.unseed::<Vec<Vec<u64>>>()
+                    .key_switch(user_id)
+                    .extract_all()
+            })
+            .collect_vec()
+    }
+}
+
 pub fn encrypt_plain(ck: &ClientKey, plain: PlainWord) -> EncryptedWord {
     let plain = u64_to_binary::<32>(plain as u64);
     let cipher = ck.encrypt(plain.as_slice());
     return cipher;
-}
-
-pub fn unseed_cipher(cipher: &EncryptedWord) -> UnseededWord {
-    let unseeded = cipher.unseed::<Vec<Vec<u64>>>();
-    unseeded
-}
-
-pub fn switch_key(cipher: &UnseededWord, other: UserId) -> KeySwitchedWord {
-    let switched = cipher.key_switch(other).extract_all();
-    switched
 }
 
 pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &KeySwitchedWord) -> DecryptionShare {
@@ -199,7 +212,7 @@ impl ServerStorage {
 
     pub(crate) fn get_ciphers_and_sks(
         &mut self,
-    ) -> Result<(Vec<ServerKeyShare>, Vec<Cipher>), Error> {
+    ) -> Result<(Vec<ServerKeyShare>, Vec<Payload>), Error> {
         let mut server_key_shares = vec![];
         let mut ciphers = vec![];
         for (user_id, user) in self.users.iter_mut().enumerate() {
@@ -229,12 +242,12 @@ pub(crate) struct UserRecord {
 #[derive(Debug, Clone)]
 pub(crate) enum UserStorage {
     Empty,
-    CipherSks(Ciphers, Box<ServerKeyShare>),
+    CipherSks(Payload, Box<ServerKeyShare>),
     DecryptionShare(Option<Vec<DecryptionShare>>),
 }
 
 impl UserStorage {
-    pub(crate) fn get_cipher_sks(&self) -> Option<(&Ciphers, &ServerKeyShare)> {
+    pub(crate) fn get_cipher_sks(&self) -> Option<(&Payload, &ServerKeyShare)> {
         match self {
             Self::CipherSks(cipher, sks) => Some((cipher, sks)),
             _ => None,
@@ -258,7 +271,7 @@ pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 #[serde(crate = "rocket::serde")]
 pub(crate) struct CipherSubmission {
     pub(crate) user_id: UserId,
-    pub(crate) cipher_text: Ciphers,
+    pub(crate) cipher_text: Payload,
     pub(crate) sks: ServerKeyShare,
 }
 

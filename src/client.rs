@@ -1,10 +1,10 @@
 use crate::{
     dashboard::{Dashboard, RegisteredUser},
     types::{
-        CipherSubmission, Ciphers, Dashboard, DecryptionShare, DecryptionShareSubmission,
-        RegisteredUser, Seed, ServerKeyShare, ServerState, UserId,
+        CipherSubmission, DecryptionShare, DecryptionShareSubmission, Seed, ServerKeyShare,
+        ServerState, UserId,
     },
-    Word,
+    Payload, Word,
 };
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -138,7 +138,7 @@ impl WebClient {
     pub async fn submit_cipher(
         &self,
         user_id: UserId,
-        cipher_text: &Ciphers,
+        cipher_text: &Payload,
         sks: &ServerKeyShare,
     ) -> Result<UserId, Error> {
         let submission = CipherSubmission {

@@ -5,7 +5,7 @@ use tabled::{settings::Style, Table, Tabled};
 use clap::command;
 use itertools::Itertools;
 use karma_calculator::{
-    decrypt_word, encrypt_plain, gen_decryption_shares, setup, Ciphers, DecryptionSharesMap, Score,
+    decrypt_word, gen_decryption_shares, setup, DecryptionSharesMap, Payload, Score, ServerState,
     WebClient, Word,
 };
 
@@ -223,7 +223,7 @@ async fn cmd_score_encrypt(
     let scores: Result<Vec<_>, Error> = args
         .iter()
         .map(|s| {
-            s.parse::<u32>()
+            s.parse::<Score>()
                 .map_err(|err| anyhow::format_err!(err.to_string()))
         })
         .collect_vec()
@@ -236,33 +236,26 @@ async fn cmd_score_encrypt(
         scores.len(),
         total_users
     );
-    let max = u32::max_value();
+    let max = Score::max_value();
     ensure!(
         scores.iter().all(|&x| x <= max),
         "All scores should be less or equal than {}. Scores: {:#?}",
         max,
         scores,
     );
-    let total: u8 = scores.iter().sum();
+    let total: Score = scores.iter().sum();
     for (name, score) in zip(names, scores.iter()) {
         println!("Give {name} {score} karma");
     }
     println!("I gave out {total} karma");
 
-    let mut plain_text = scores.to_vec();
-    plain_text.push(total);
-
-    println!("Encrypting Inputs");
-    let cipher: Ciphers = plain_text
-        .iter()
-        .map(|score| encrypt_plain(ck, *score))
-        .collect_vec();
+    let payload = Payload::from_plain(ck, &scores);
 
     println!("Generating server key share");
     let sks = gen_server_key_share(*user_id, total_users, ck);
 
     println!("Submit the cipher and the server key share");
-    client.submit_cipher(*user_id, &cipher, &sks).await?;
+    client.submit_cipher(*user_id, &payload, &sks).await?;
     Ok(scores)
 }
 

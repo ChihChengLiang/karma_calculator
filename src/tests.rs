@@ -30,10 +30,10 @@ struct User {
     id: Option<UserId>,
     total_users: Option<usize>,
     // step 2: assign scores
-    scores: Option<Vec<Score>>,
+    scores: Option<Vec<PlainWord>>,
     // step 3: gen key and cipher
     server_key: Option<ServerKeyShare>,
-    cipher: Option<Ciphers>,
+    cipher: Option<Payload>,
     // step 4: get FHE output
     fhe_out: Option<Vec<Word>>,
     // step 5: derive decryption shares
@@ -74,7 +74,7 @@ impl User {
         self.total_users = Some(total_users);
         self
     }
-    fn assign_scores(&mut self, scores: &[u8]) -> &mut Self {
+    fn assign_scores(&mut self, scores: &[PlainWord]) -> &mut Self {
         self.scores = Some(scores.to_vec());
         self
     }
@@ -83,7 +83,7 @@ impl User {
         let scores = self.scores.as_ref().unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
 
-        let cipher = scores.iter().map(|s| encrypt_plain(ck, *s)).collect_vec();
+        let cipher = Payload::from_plain(ck, &scores);
         self.cipher = Some(cipher);
         self
     }
@@ -197,8 +197,8 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
 
     let mut correct_output = vec![];
     for (my_id, me) in users.iter().enumerate() {
-        let given_out = me.scores.as_ref().unwrap().iter().sum::<u8>();
-        let mut received = 0u8;
+        let given_out = me.scores.as_ref().unwrap().iter().sum::<Score>();
+        let mut received = 0;
         for other in users.iter() {
             received += other.scores.as_ref().unwrap()[my_id];
         }

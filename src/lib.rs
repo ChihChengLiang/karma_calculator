@@ -9,8 +9,8 @@ pub use client::WebClient;
 pub use server::{rocket, setup};
 
 pub use types::{
-    recover, u64_to_binary, Ciphers, ClientKey, DecryptionShare, DecryptionSharesMap,
-    RegisteredUser, Score, Seed, ServerKeyShare, UserId, Word, *,
+    recover, u64_to_binary, ClientKey, DecryptionShare, DecryptionSharesMap, Score, Seed,
+    ServerKeyShare, UserId, Word, *,
 };
 
 #[cfg(test)]
