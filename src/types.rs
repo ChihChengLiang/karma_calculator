@@ -269,9 +269,9 @@ pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub(crate) struct CipherSubmission {
+pub(crate) struct InputSubmission {
     pub(crate) user_id: UserId,
-    pub(crate) cipher_text: CircuitInput,
+    pub(crate) ci: CircuitInput,
     pub(crate) sks: ServerKeyShare,
 }
 

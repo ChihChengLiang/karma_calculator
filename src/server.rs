@@ -1,7 +1,7 @@
 use crate::circuit::{derive_server_key, evaluate_circuit, PARAMETER};
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
-    CipherSubmission, DecryptionShareSubmission, Error, ErrorResponse, MutexServerStorage,
+    DecryptionShareSubmission, Error, ErrorResponse, InputSubmission, MutexServerStorage,
     ServerState, ServerStorage, UserStorage, Word,
 };
 use crate::{time, DecryptionShare, Seed, UserId};
@@ -54,22 +54,18 @@ async fn get_dashboard(ss: &State<MutexServerStorage>) -> Json<Dashboard> {
 /// The user submits the ciphertext
 #[post("/submit", data = "<submission>", format = "msgpack")]
 async fn submit(
-    submission: MsgPack<CipherSubmission>,
+    submission: MsgPack<InputSubmission>,
     ss: &State<MutexServerStorage>,
 ) -> Result<Json<UserId>, ErrorResponse> {
     let mut ss = ss.lock().await;
 
     ss.ensure(ServerState::ReadyForInputs)?;
 
-    let CipherSubmission {
-        user_id,
-        cipher_text,
-        sks,
-    } = submission.0;
+    let InputSubmission { user_id, ci, sks } = submission.0;
 
     let user = ss.get_user(user_id)?;
     println!("{} submited data", user.name);
-    user.storage = UserStorage::CipherSks(cipher_text, Box::new(sks));
+    user.storage = UserStorage::CipherSks(ci, Box::new(sks));
 
     if ss.check_cipher_submission() {
         ss.transit(ServerState::ReadyForRunning);
