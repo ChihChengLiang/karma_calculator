@@ -98,9 +98,14 @@ impl CircuitOutput {
             .map(|(word, shares)| decrypt_word(ck, word, shares))
             .collect_vec()
     }
+
+    /// Get number of outputs
+    pub fn n(&self) -> usize {
+        self.karma_balance.len()
+    }
 }
 
-pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &Word) -> DecryptionShare {
+fn gen_decryption_shares(ck: &ClientKey, fhe_output: &Word) -> DecryptionShare {
     let dec_shares = fhe_output
         .iter()
         .map(|out_bit| ck.gen_decryption_share(out_bit))
@@ -108,7 +113,7 @@ pub fn gen_decryption_shares(ck: &ClientKey, fhe_output: &Word) -> DecryptionSha
     dec_shares
 }
 
-pub fn decrypt_word(ck: &ClientKey, fhe_output: &Word, shares: &[DecryptionShare]) -> PlainWord {
+fn decrypt_word(ck: &ClientKey, fhe_output: &Word, shares: &[DecryptionShare]) -> PlainWord {
     let decrypted_bits = fhe_output
         .iter()
         .zip(shares)

@@ -35,7 +35,7 @@ struct User {
     server_key: Option<ServerKeyShare>,
     cipher: Option<CircuitInput>,
     // step 4: get FHE output
-    fhe_out: Option<Vec<Word>>,
+    fhe_out: Option<CircuitOutput>,
     // step 5: derive decryption shares
     decryption_shares: DecryptionSharesMap,
 }
@@ -98,7 +98,7 @@ impl User {
         self
     }
 
-    fn set_fhe_out(&mut self, fhe_out: Vec<Word>) -> &mut Self {
+    fn set_fhe_out(&mut self, fhe_out: CircuitOutput) -> &mut Self {
         self.fhe_out = Some(fhe_out);
         self
     }
@@ -107,10 +107,11 @@ impl User {
         let ck = self.ck.as_ref().expect("already exists");
         let fhe_out = self.fhe_out.as_ref().expect("exists");
         let my_id = self.id.expect("exists");
-        for (output_id, out) in fhe_out.iter().enumerate() {
-            let my_decryption_share = gen_decryption_shares(ck, out);
+
+        let my_decryption_shares = fhe_out.gen_decryption_shares(ck);
+        for (out_id, share) in my_decryption_shares.iter().enumerate() {
             self.decryption_shares
-                .insert((output_id, my_id), my_decryption_share);
+                .insert((out_id, my_id), share.to_vec());
         }
         self
     }
@@ -131,23 +132,21 @@ impl User {
     fn decrypt_everything(&self) -> Vec<Score> {
         let total_users = self.total_users.expect("exist");
         let ck = self.ck.as_ref().expect("already exists");
-        let fhe_out = self.fhe_out.as_ref().expect("exists");
+        let co = self.fhe_out.as_ref().expect("exists");
 
-        fhe_out
-            .iter()
-            .enumerate()
-            .map(|(output_id, output)| {
-                let decryption_shares = (0..total_users)
+        let dss = (0..co.n())
+            .map(|output_id| {
+                (0..total_users)
                     .map(|user_id| {
                         self.decryption_shares
                             .get(&(output_id, user_id))
                             .expect("exists")
                             .to_owned()
                     })
-                    .collect_vec();
-                decrypt_word(ck, output, &decryption_shares)
+                    .collect_vec()
             })
-            .collect_vec()
+            .collect_vec();
+        co.decrypt(ck, &dss)
     }
 }
 

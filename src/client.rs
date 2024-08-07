@@ -4,7 +4,7 @@ use crate::{
         DecryptionShare, DecryptionShareSubmission, InputSubmission, Seed, ServerKeyShare,
         ServerState, UserId,
     },
-    CircuitInput, Word,
+    CircuitInput, CircuitOutput,
 };
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -153,7 +153,7 @@ impl WebClient {
         self.post_nobody("/run").await
     }
 
-    pub async fn get_fhe_output(&self) -> Result<Vec<Word>, Error> {
+    pub async fn get_fhe_output(&self) -> Result<CircuitOutput, Error> {
         self.get("/fhe_output").await
     }
 

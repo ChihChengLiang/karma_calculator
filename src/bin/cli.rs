@@ -5,8 +5,7 @@ use tabled::{settings::Style, Table, Tabled};
 use clap::command;
 use itertools::Itertools;
 use karma_calculator::{
-    decrypt_word, gen_decryption_shares, setup, CircuitInput, DecryptionSharesMap, Score,
-    ServerState, WebClient, Word,
+    setup, CircuitInput, CircuitOutput, DecryptionSharesMap, Score, ServerState, WebClient,
 };
 
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -128,7 +127,7 @@ struct StateDownloadedOuput {
     ck: ClientKey,
     names: Vec<String>,
     scores: Vec<Score>,
-    fhe_out: Vec<Word>,
+    fhe_out: CircuitOutput,
     shares: DecryptionSharesMap,
 }
 
@@ -270,7 +269,7 @@ async fn cmd_download_output(
     client: &WebClient,
     user_id: &usize,
     ck: &ClientKey,
-) -> Result<(Vec<Word>, HashMap<(usize, usize), Vec<u64>>), Error> {
+) -> Result<(CircuitOutput, HashMap<(usize, usize), Vec<u64>>), Error> {
     let resp = client.trigger_fhe_run().await?;
     if !matches!(resp, ServerState::CompletedFhe) {
         bail!("FHE is still running")
@@ -281,13 +280,10 @@ async fn cmd_download_output(
 
     println!("Generating my decrypting shares");
     let mut shares = HashMap::new();
-    let mut my_decryption_shares = Vec::new();
-    for (out_id, out) in fhe_out.iter().enumerate() {
-        let share = gen_decryption_shares(ck, out);
-        my_decryption_shares.push(share.clone());
-        shares.insert((out_id, *user_id), share);
+    let my_decryption_shares = fhe_out.gen_decryption_shares(ck);
+    for (out_id, share) in my_decryption_shares.iter().enumerate() {
+        shares.insert((out_id, *user_id), share.to_vec());
     }
-
     println!("Submitting my decrypting shares");
     client
         .submit_decryption_shares(*user_id, &my_decryption_shares)
@@ -300,33 +296,32 @@ async fn cmd_download_shares(
     names: &[String],
     ck: &ClientKey,
     shares: &mut HashMap<(usize, usize), Vec<u64>>,
-    fhe_out: &[Word],
+    co: &CircuitOutput,
     scores: &[Score],
 ) -> Result<Vec<Score>, Error> {
     let total_users = names.len();
     println!("Acquiring decryption shares needed");
-    for (output_id, user_id) in (0..total_users).cartesian_product(0..total_users) {
+    for (output_id, user_id) in (0..co.n()).cartesian_product(0..total_users) {
         if shares.get(&(output_id, user_id)).is_none() {
             let ds = client.get_decryption_share(output_id, user_id).await?;
             shares.insert((output_id, user_id), ds);
         }
     }
     println!("Decrypt the encrypted output");
-    let decrypted_output = fhe_out
-        .iter()
-        .enumerate()
-        .map(|(output_id, output)| {
-            let decryption_shares = (0..total_users)
+    // Problem: How do you know output id?
+    let dss = (0..co.n())
+        .map(|output_id| {
+            (0..total_users)
                 .map(|user_id| {
                     shares
                         .get(&(output_id, user_id))
                         .expect("exists")
                         .to_owned()
                 })
-                .collect_vec();
-            decrypt_word(ck, output, &decryption_shares)
+                .collect_vec()
         })
         .collect_vec();
+    let decrypted_output = co.decrypt(ck, &dss);
     println!("Final decrypted output:");
     present_balance(names, scores, &decrypted_output);
     Ok(decrypted_output)
