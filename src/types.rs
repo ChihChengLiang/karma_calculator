@@ -175,6 +175,23 @@ impl ServerStorage {
             .all(|user| matches!(user.storage, UserStorage::CipherSks(..)))
     }
 
+    pub(crate) fn get_ciphers_and_sks(
+        &mut self,
+    ) -> Result<(Vec<ServerKeyShare>, Vec<Cipher>), Error> {
+        let mut server_key_shares = vec![];
+        let mut ciphers = vec![];
+        for (user_id, user) in self.users.iter_mut().enumerate() {
+            if let Some((cipher, sks)) = user.storage.get_cipher_sks() {
+                server_key_shares.push(sks.clone());
+                ciphers.push(cipher.clone());
+                user.storage = UserStorage::DecryptionShare(None);
+            } else {
+                return Err(Error::CipherNotFound { user_id }.into());
+            }
+        }
+        Ok((server_key_shares, ciphers))
+    }
+
     pub(crate) fn get_dashboard(&self) -> Dashboard {
         Dashboard::new(
             &(&self.state).into(),

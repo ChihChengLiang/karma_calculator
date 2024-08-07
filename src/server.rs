@@ -83,18 +83,7 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorRespon
     match &mut ss.state {
         ServerState::ReadyForRunning => {
             println!("Checking if we have all user submissions");
-            let mut server_key_shares = vec![];
-            let mut ciphers = vec![];
-            for (user_id, user) in ss.users.iter_mut().enumerate() {
-                if let Some((cipher, sks)) = user.storage.get_cipher_sks() {
-                    server_key_shares.push(sks.clone());
-                    ciphers.push(cipher.clone());
-                    user.storage = UserStorage::DecryptionShare(None);
-                } else {
-                    ss.transit(ServerState::ReadyForInputs);
-                    return Err(Error::CipherNotFound { user_id }.into());
-                }
-            }
+            let (server_key_shares, ciphers) = ss.get_ciphers_and_sks()?;
             println!("We have all submissions!");
             let (tx, rx) = oneshot::channel::<Vec<FheUint8>>();
             tokio::task::spawn_blocking(move || {
@@ -118,7 +107,7 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorRespon
                     .unwrap()
             });
             ss.transit(ServerState::RunningFhe { rx });
-            Ok(Json("Awesome".to_string()))
+            Ok(Json("FHE computation started".to_string()))
         }
         ServerState::RunningFhe { rx } => match rx.try_recv() {
             Ok(output) => {
