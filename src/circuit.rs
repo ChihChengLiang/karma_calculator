@@ -1,6 +1,6 @@
 use crate::{karma_rs_fhe_lib::karma_add, types::Word, Payload};
 use itertools::Itertools;
-use phantom_zone::{aggregate_server_key_shares, ParameterSelector};
+use phantom_zone::{aggregate_server_key_shares, set_parameter_set, ParameterSelector};
 use rayon::prelude::*;
 
 use crate::{time, ServerKeyShare};
@@ -12,7 +12,11 @@ pub(crate) fn sum_fhe_dyn(input: &[Word]) -> Word {
     let sum = input
         .par_iter()
         .cloned()
-        .reduce_with(|a, b| karma_add(&a, &b))
+        .reduce_with(|a, b| {
+            // HACK: How come the set_parameter_set didn't propagate to karma_add?
+            set_parameter_set(PARAMETER);
+            karma_add(&a, &b)
+        })
         .expect("Not None");
     sum
 }
