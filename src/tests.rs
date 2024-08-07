@@ -200,7 +200,7 @@ async fn run_flow_with_n_users(total_users: usize) -> Result<(), Error> {
         for other in users.iter() {
             received += other.scores.as_ref().unwrap()[my_id];
         }
-        correct_output.push(received - given_out)
+        correct_output.push(received.wrapping_sub(given_out))
     }
 
     users.par_iter_mut().for_each(|user| {
