@@ -27,7 +27,7 @@ enum State {
     Setup(StateSetup),
     ConcludedRegistration(ConcludedRegistration),
     EncryptedInput(EncryptedInput),
-    CompletedRun(StateCompletedRun),
+    TriggeredRun(StateTriggeredRun),
     DownloadedOutput(StateDownloadedOuput),
     Decrypted(StateDecrypted),
 }
@@ -39,7 +39,7 @@ impl Display for State {
             State::Setup(_) => "Setup",
             State::ConcludedRegistration(_) => "Concluded Registration",
             State::EncryptedInput(_) => "Encrypted Input",
-            State::CompletedRun(_) => "Completed Run",
+            State::TriggeredRun(_) => "Triggered Run",
             State::DownloadedOutput(_) => "Downloaded Output",
             State::Decrypted(_) => "Decrypted",
         };
@@ -56,7 +56,7 @@ impl State {
             State::Setup(StateSetup { .. }) => "✅ Setup completed!".to_string(),
             State::ConcludedRegistration(_) => "✅ Users' names acquired!".to_string(),
             State::EncryptedInput(_) => "✅ Ciphertext submitted!".to_string(),
-            State::CompletedRun(_) => "✅ FHE run completed!".to_string(),
+            State::TriggeredRun(_) => "✅ FHE run triggered!".to_string(),
             State::DownloadedOutput(_) => "✅ FHE output downloaded!".to_string(),
             State::Decrypted(_) => "✅ FHE output decrypted!".to_string(),
         };
@@ -112,7 +112,7 @@ struct EncryptedInput {
     scores: Vec<u8>,
 }
 
-struct StateCompletedRun {
+struct StateTriggeredRun {
     name: String,
     client: WebClient,
     ck: ClientKey,
@@ -372,7 +372,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                 }
             }
             State::EncryptedInput(s) => match cmd_run(&s.client).await {
-                Ok(()) => Ok(State::CompletedRun(StateCompletedRun {
+                Ok(()) => Ok(State::TriggeredRun(StateTriggeredRun {
                     name: s.name,
                     client: s.client,
                     ck: s.ck,
@@ -382,7 +382,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                 })),
                 Err(err) => Err((err, State::EncryptedInput(s))),
             },
-            State::CompletedRun(s) => match cmd_download_output(&s.client, &s.user_id, &s.ck).await
+            State::TriggeredRun(s) => match cmd_download_output(&s.client, &s.user_id, &s.ck).await
             {
                 Ok((fhe_out, shares)) => Ok(State::DownloadedOutput(StateDownloadedOuput {
                     name: s.name,
@@ -393,7 +393,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                     fhe_out,
                     shares,
                 })),
-                Err(err) => Err((err, State::CompletedRun(s))),
+                Err(err) => Err((err, State::TriggeredRun(s))),
             },
             State::DownloadedOutput(mut s) => {
                 match cmd_download_shares(
@@ -450,7 +450,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             | State::Setup(StateSetup { client, .. })
             | State::ConcludedRegistration(ConcludedRegistration { client, .. })
             | State::EncryptedInput(EncryptedInput { client, .. })
-            | State::CompletedRun(StateCompletedRun { client, .. })
+            | State::TriggeredRun(StateTriggeredRun { client, .. })
             | State::DownloadedOutput(StateDownloadedOuput { client, .. })
             | State::Decrypted(StateDecrypted { client, .. }) => {
                 match client.get_dashboard().await {
