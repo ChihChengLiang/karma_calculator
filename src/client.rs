@@ -99,7 +99,7 @@ impl WebClient {
         match self {
             WebClient::Prod { client, .. } => {
                 let body = msgpack::to_compact_vec(body)?;
-                let reader = ProgressReader::new(&body, 128);
+                let reader = ProgressReader::new(&body, 128 * 1024);
                 let stream = ReaderStream::new(reader);
 
                 let response = client

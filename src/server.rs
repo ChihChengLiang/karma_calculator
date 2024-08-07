@@ -93,8 +93,8 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
             let (server_key_shares, ciphers) = ss.get_ciphers_and_sks()?;
             println!("We have all submissions!");
 
-            tokio::task::spawn_blocking(move || async move {
-                let (tx, rx) = oneshot::channel::<Vec<FheUint8>>();
+            tokio::task::spawn_blocking(move || {
+                println!("build thread pool");
                 rayon::ThreadPoolBuilder::new()
                     .build_scoped(
                         // Initialize thread-local storage parameters
@@ -105,22 +105,22 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, Er
                         // Run parallel code under this pool
                         |pool| {
                             pool.install(|| {
+                                println!("derive server key");
                                 // Long running, global variable change
                                 derive_server_key(&server_key_shares);
                                 // Long running
+                                println!("eval circuit");
                                 let output =
                                     time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit");
-
-                                tx.send(output).unwrap();
+                                println!("s2 lock");
+                                let mut ss = s2.blocking_lock();
+                                ss.fhe_outputs = output;
+                                ss.transit(ServerState::CompletedFhe);
+                                println!("FHE computation completed");
                             })
                         },
                     )
                     .unwrap();
-                let output = rx.await.unwrap();
-                let mut ss = s2.lock().await;
-                ss.fhe_outputs = output;
-                ss.transit(ServerState::CompletedFhe);
-                println!("FHE computation completed");
             });
             ss.transit(ServerState::RunningFhe);
             Ok(Json(ServerStateView::RunningFhe))
