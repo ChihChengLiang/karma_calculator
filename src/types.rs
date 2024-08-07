@@ -337,7 +337,7 @@ pub fn u64_to_binary<const N: usize>(v: u64) -> [bool; N] {
 pub fn recover(bits: &[bool]) -> u32 {
     let mut out: u32 = 0;
     for (i, bit) in bits.iter().enumerate() {
-        out &= (*bit as u32) << i;
+        out |= (*bit as u32) << i;
     }
     out
 }

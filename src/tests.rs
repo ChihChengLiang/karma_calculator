@@ -357,5 +357,5 @@ fn test_circuit() {
         .map(|(ct, dec_shares)| cks[0].aggregate_decryption_shares(ct, dec_shares))
         .collect_vec();
 
-    println!("Result: {:?}", out_back);
+    assert_eq!(u64::from(recover(&out_back)), input_a_int + input_b_int);
 }
