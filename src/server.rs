@@ -80,7 +80,7 @@ async fn submit(
 
 /// The admin runs the fhe computation
 #[post("/run")]
-async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorResponse> {
+async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerStateView>, ErrorResponse> {
     let mut ss = ss.lock().await;
     match &mut ss.state {
         ServerState::ReadyForRunning => {
@@ -109,21 +109,19 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<String>, ErrorRespon
                     .unwrap()
             });
             ss.transit(ServerState::RunningFhe { rx });
-            Ok(Json("FHE computation started".to_string()))
+            Ok(Json(ServerStateView::RunningFhe))
         }
         ServerState::RunningFhe { rx } => match rx.try_recv() {
             Ok(output) => {
                 ss.fhe_outputs = output;
                 ss.transit(ServerState::CompletedFhe);
                 println!("FHE computation completed");
-                Ok(Json("FHE complete".to_string()))
+                Ok(Json(ServerStateView::CompletedFhe))
             }
-            Err(oneshot::error::TryRecvError::Empty) => {
-                Ok(Json("FHE is still running".to_string()))
-            }
+            Err(oneshot::error::TryRecvError::Empty) => Ok(Json(ServerStateView::RunningFhe)),
             Err(err) => Err(Error::ChannelError(err.to_string()).into()),
         },
-        ServerState::CompletedFhe => Ok(Json("FHE already complete".to_string())),
+        ServerState::CompletedFhe => Ok(Json(ServerStateView::CompletedFhe)),
         _ => Err(Error::WrongServerState {
             expect: ServerStateView::ReadyForRunning.to_string(),
             got: ServerStateView::from(&ss.state).to_string(),

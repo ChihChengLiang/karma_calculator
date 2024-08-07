@@ -97,7 +97,7 @@ impl ServerState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) enum ServerStateView {
+pub enum ServerStateView {
     ReadyForJoining,
     ReadyForInputs,
     ReadyForRunning,

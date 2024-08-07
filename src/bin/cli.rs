@@ -1,10 +1,10 @@
-use anyhow::{anyhow, ensure, Error};
+use anyhow::{anyhow, bail, ensure, Error};
 use std::{collections::HashMap, fmt::Display, iter::zip};
 use tabled::{settings::Style, Table, Tabled};
 
 use clap::command;
 use itertools::Itertools;
-use karma_calculator::{setup, DecryptionSharesMap, WebClient};
+use karma_calculator::{setup, DecryptionSharesMap, ServerStateView, WebClient};
 
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -268,6 +268,11 @@ async fn cmd_download_output(
     user_id: &usize,
     ck: &ClientKey,
 ) -> Result<(Vec<FheUint8>, HashMap<(usize, usize), Vec<u64>>), Error> {
+    let resp = client.trigger_fhe_run().await?;
+    if !matches!(resp, ServerStateView::CompletedFhe) {
+        bail!("FHE is still running")
+    }
+
     println!("Downloading fhe output");
     let fhe_out = client.get_fhe_output().await?;
 

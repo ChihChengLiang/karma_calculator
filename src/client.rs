@@ -1,7 +1,7 @@
 use crate::dashboard::{Dashboard, RegisteredUser};
 use crate::types::{
     Cipher, CipherSubmission, DecryptionShare, DecryptionShareSubmission, FheUint8, Seed,
-    ServerKeyShare, UserId,
+    ServerKeyShare, ServerStateView, UserId,
 };
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -146,7 +146,7 @@ impl WebClient {
         self.post_msgpack("/submit", &submission).await
     }
 
-    pub async fn trigger_fhe_run(&self) -> Result<String, Error> {
+    pub async fn trigger_fhe_run(&self) -> Result<ServerStateView, Error> {
         self.post_nobody("/run").await
     }
 
