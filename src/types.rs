@@ -301,7 +301,7 @@ impl UserStorage {
     }
 }
 
-/// FheUint8 index -> user_id -> decryption share
+/// ([`Word`] index, user_id) -> decryption share
 pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 
 #[derive(Serialize, Deserialize)]
@@ -316,7 +316,7 @@ pub(crate) struct InputSubmission {
 #[serde(crate = "rocket::serde")]
 pub(crate) struct DecryptionShareSubmission {
     pub(crate) user_id: UserId,
-    /// The user sends decryption share Vec<u64> for each FheUint8.
+    /// The user sends decryption share for each [`Word`].
     pub(crate) decryption_shares: Vec<DecryptionShare>,
 }
 
