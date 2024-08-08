@@ -65,8 +65,7 @@ impl CircuitInput {
 
 fn encrypt_plain(ck: &ClientKey, plain: PlainWord) -> EncryptedWord {
     let plain = u64_to_binary::<32>(plain as u64);
-    let cipher = ck.encrypt(plain.as_slice());
-    return cipher;
+    ck.encrypt(plain.as_slice())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,9 +323,9 @@ pub(crate) struct DecryptionShareSubmission {
 pub fn u64_to_binary<const N: usize>(v: u64) -> [bool; N] {
     assert!((v as u128) < 2u128.pow(N as u32));
     let mut result = [false; N];
-    for i in 0..N {
+    for (i, bit) in result.iter_mut().enumerate() {
         if (v >> i) & 1 == 1 {
-            result[i] = true;
+            *bit = true;
         }
     }
     result

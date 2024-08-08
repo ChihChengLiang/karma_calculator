@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(clippy::all)]
 
 #[rustfmt::skip]
 mod karma_add_rs_fhe_lib;
