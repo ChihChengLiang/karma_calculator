@@ -122,6 +122,7 @@ struct StateTriggeredRun {
 }
 
 struct StateDownloadedOuput {
+    #[allow(dead_code)]
     name: String,
     client: WebClient,
     ck: ClientKey,
