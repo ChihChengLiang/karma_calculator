@@ -1,7 +1,7 @@
 #include "karma_add.h"
 
 #pragma hls_top
-int karma_add(int a, int b) {
+unsigned short karma_add(unsigned short a, unsigned short b) {
   return a + b;
 
   // Normally this statement shouldn't be reached. If it was reached, it means
