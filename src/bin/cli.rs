@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail, ensure, Error};
 use clap::{command, Parser};
 use itertools::Itertools;
 use karma_calculator::{
-    setup, CircuitInput, CircuitOutput, DecryptionSharesMap, Score, ServerState, WebClient,
+    setup, CircuitInput, CircuitOutput, DecryptionSharesMap, Score, ServerState, UserId, WebClient,
 };
 use phantom_zone::{gen_client_key, gen_server_key_share, ClientKey};
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -98,14 +98,14 @@ struct StateSetup {
     name: String,
     client: WebClient,
     ck: ClientKey,
-    user_id: usize,
+    user_id: UserId,
 }
 
 struct ConcludedRegistration {
     name: String,
     client: WebClient,
     ck: ClientKey,
-    user_id: usize,
+    user_id: UserId,
     names: Vec<String>,
 }
 
@@ -113,7 +113,7 @@ struct EncryptedInput {
     name: String,
     client: WebClient,
     ck: ClientKey,
-    user_id: usize,
+    user_id: UserId,
     names: Vec<String>,
     scores: Vec<Score>,
 }
@@ -122,7 +122,7 @@ struct StateTriggeredRun {
     name: String,
     client: WebClient,
     ck: ClientKey,
-    user_id: usize,
+    user_id: UserId,
     names: Vec<String>,
     scores: Vec<Score>,
 }
@@ -221,7 +221,7 @@ async fn cmd_conclude_registration(client: &WebClient) -> Result<Vec<String>, Er
 async fn cmd_score_encrypt(
     args: &[&str],
     client: &WebClient,
-    user_id: &usize,
+    user_id: &UserId,
     names: &Vec<String>,
     ck: &ClientKey,
 ) -> Result<Vec<Score>, Error> {
@@ -273,9 +273,9 @@ async fn cmd_run(client: &WebClient) -> Result<(), Error> {
 
 async fn cmd_download_output(
     client: &WebClient,
-    user_id: &usize,
+    user_id: &UserId,
     ck: &ClientKey,
-) -> Result<(CircuitOutput, HashMap<(usize, usize), Vec<u64>>), Error> {
+) -> Result<(CircuitOutput, HashMap<(usize, UserId), Vec<u64>>), Error> {
     let resp = client.trigger_fhe_run().await?;
     if !matches!(resp, ServerState::CompletedFhe) {
         bail!("FHE is still running")

@@ -26,7 +26,7 @@ struct User {
     id: Option<UserId>,
     total_users: Option<usize>,
     // step 2: assign scores
-    scores: Option<Vec<PlainWord>>,
+    scores: Option<Vec<Score>>,
     // step 3: gen key and cipher
     server_key: Option<ServerKeyShare>,
     cipher: Option<CircuitInput>,
@@ -70,7 +70,7 @@ impl User {
         self.total_users = Some(total_users);
         self
     }
-    fn assign_scores(&mut self, scores: &[PlainWord]) -> &mut Self {
+    fn assign_scores(&mut self, scores: &[Score]) -> &mut Self {
         self.scores = Some(scores.to_vec());
         self
     }

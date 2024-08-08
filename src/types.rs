@@ -1,9 +1,10 @@
+use crate::dashboard::{Dashboard, RegisteredUser};
 use itertools::Itertools;
-use phantom_zone::NonInteractiveSeededFheBools;
 use phantom_zone::{
     evaluator::NonInteractiveMultiPartyCrs,
     keys::CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare, parameters::BoolParameters,
-    Encryptor, FheBool, KeySwitchWithId, MultiPartyDecryptor, SampleExtractor,
+    Encryptor, FheBool, KeySwitchWithId, MultiPartyDecryptor, NonInteractiveSeededFheBools,
+    SampleExtractor,
 };
 use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
@@ -11,26 +12,23 @@ use rocket::Responder;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::Arc;
-
 use thiserror::Error;
 
-use crate::dashboard::{Dashboard, RegisteredUser};
+pub type Score = PlainWord;
+pub type ClientKey = phantom_zone::ClientKey;
+pub type UserId = usize;
 
-pub type Seed = [u8; 32];
-pub type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
+pub(crate) type Seed = [u8; 32];
+pub(crate) type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartyServerKeyShare<
     Vec<Vec<u64>>,
     BoolParameters<u64>,
     NonInteractiveMultiPartyCrs<Seed>,
 >;
-/// number of users + total
-pub type Score = PlainWord;
-pub type Word = Vec<FheBool>;
+pub(crate) type Word = Vec<FheBool>;
 /// Decryption share for a word from one user.
-pub type DecryptionShare = Vec<u64>;
-pub type ClientKey = phantom_zone::ClientKey;
-pub type UserId = usize;
+pub(crate) type DecryptionShare = Vec<u64>;
 
-pub type PlainWord = u32;
+type PlainWord = u32;
 type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 
 /// Encrypted input words contributed from one user

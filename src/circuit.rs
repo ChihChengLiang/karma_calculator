@@ -1,12 +1,11 @@
 use crate::{
     compiled::{karma_add, karma_sub},
-    types::{CircuitInput, CircuitOutput, Word},
+    time,
+    types::{CircuitInput, CircuitOutput, ServerKeyShare, Word},
 };
 use itertools::Itertools;
 use phantom_zone::{aggregate_server_key_shares, set_parameter_set, ParameterSelector};
-use rayon::prelude::*;
-
-use crate::{time, ServerKeyShare};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub const PARAMETER: ParameterSelector = ParameterSelector::NonInteractiveLTE40PartyExperimental;
 
