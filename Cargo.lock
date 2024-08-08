@@ -1339,6 +1339,7 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 [[package]]
 name = "phantom-zone"
 version = "0.1.0"
+source = "git+https://github.com/ChihChengLiang/phantom-zone?rev=7645ad5b8a329429f44feb2485b0715aad86dab1#7645ad5b8a329429f44feb2485b0715aad86dab1"
 dependencies = [
  "itertools 0.12.1",
  "num-traits",

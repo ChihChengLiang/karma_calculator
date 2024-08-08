@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-phantom-zone = { path = "../phantom-zone", features = ["non_interactive_mp"] }
+phantom-zone = { git = "https://github.com/ChihChengLiang/phantom-zone", rev = "7645ad5b8a329429f44feb2485b0715aad86dab1", features = [
+    "non_interactive_mp",
+] }
 rand = "0.8.5"
 itertools = "0.13.0"
 rocket = { version = "0.5.1", features = ["json", "msgpack"] }
