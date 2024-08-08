@@ -243,8 +243,8 @@ async fn cmd_score_encrypt(
         total_users
     );
     ensure!(
-        scores.iter().all(|&x| x <= MAX_INPUT_VALUE),
-        "All scores should be less or equal than {}. Scores: {:#?}",
+        scores.iter().all(|&x| x <= MAX_INPUT_VALUE && x >= 0),
+        "All scores should be in range of 0 to {}. Scores: {:#?}",
         MAX_INPUT_VALUE,
         scores,
     );
