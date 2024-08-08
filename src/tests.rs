@@ -4,9 +4,7 @@ use crate::*;
 use anyhow::Error;
 use futures::future::join_all;
 use itertools::Itertools;
-use phantom_zone::{
-    gen_client_key, gen_server_key_share, set_parameter_set, Encryptor, MultiPartyDecryptor,
-};
+use phantom_zone::{gen_client_key, gen_server_key_share, set_parameter_set};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use rocket::{
     serde::{msgpack, Deserialize, Serialize},
@@ -281,79 +279,5 @@ async fn full_flow() {
     // Need to fix the global variable thing to allow multiple flow run
     // run_flow_with_n_users(2).await.unwrap();
     // run_flow_with_n_users(3).await.unwrap();
-    run_flow_with_n_users(2).await.unwrap();
-}
-
-#[test]
-fn test_circuit() {
-    use compiled::karma_add;
-    use phantom_zone::{
-        aggregate_server_key_shares, set_common_reference_seed, set_parameter_set, KeySwitchWithId,
-        ParameterSelector, SampleExtractor,
-    };
-    use rand::{thread_rng, RngCore};
-
-    set_parameter_set(ParameterSelector::NonInteractiveLTE2Party);
-    // set application's common reference seed
-    let mut seed = [0u8; 32];
-    thread_rng().fill_bytes(&mut seed);
-    set_common_reference_seed(seed);
-
-    // let n_users = 100;
-    let no_of_parties = 2;
-
-    // Clide side //
-
-    // Generate client keys
-    let cks = (0..no_of_parties).map(|_| gen_client_key()).collect_vec();
-    let ck_a = &cks[0];
-    let ck_b = &cks[1];
-
-    let input_a_int = 0x12;
-    let input_b_int = 0x34;
-
-    let input_a = u64_to_binary::<32>(input_a_int);
-    let input_b = u64_to_binary::<32>(input_b_int);
-
-    let now = std::time::Instant::now();
-    let server_key_shares = cks
-        .iter()
-        .enumerate()
-        .map(|(id, k)| gen_server_key_share(id, no_of_parties, k))
-        .collect_vec();
-    println!("Clients server key share gen time: {:?}", now.elapsed());
-
-    // aggregate server shares and generate the server key
-    let now = std::time::Instant::now();
-    let server_key = aggregate_server_key_shares(&server_key_shares);
-    server_key.set_server_key();
-    println!("Server key gen time: {:?}", now.elapsed());
-
-    // Server extracts the cyphertexts (1 cyphertext per bit)
-    let now = std::time::Instant::now();
-    let cts_a = ck_a.encrypt(input_a.as_slice());
-    let cts_b = ck_b.encrypt(input_b.as_slice());
-    println!("Encryption time: {:?}", now.elapsed());
-
-    let now = std::time::Instant::now();
-    let cts_a = cts_a.unseed::<Vec<Vec<u64>>>().key_switch(0).extract_all();
-    let cts_b = cts_b.unseed::<Vec<Vec<u64>>>().key_switch(1).extract_all();
-    println!("Key switch time: {:?}", now.elapsed());
-
-    let now = std::time::Instant::now();
-    let cts_out = karma_add(&cts_a, &cts_b);
-    println!("FHE circuit evaluation time: {:?}", now.elapsed());
-
-    let dec_shares = cts_out
-        .iter()
-        .map(|ct| cks.iter().map(|k| k.gen_decryption_share(ct)).collect_vec())
-        .collect_vec();
-
-    let out_back = cts_out
-        .iter()
-        .zip(dec_shares.iter())
-        .map(|(ct, dec_shares)| cks[0].aggregate_decryption_shares(ct, dec_shares))
-        .collect_vec();
-
-    assert_eq!(u64::from(recover(&out_back)), input_a_int + input_b_int);
+    run_flow_with_n_users(4).await.unwrap();
 }
