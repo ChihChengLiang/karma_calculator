@@ -1,18 +1,16 @@
 use anyhow::{anyhow, bail, ensure, Error};
-use std::{collections::HashMap, fmt::Display, iter::zip};
-use tabled::{settings::Style, Table, Tabled};
-
-use clap::command;
+use clap::{command, Parser};
 use itertools::Itertools;
 use karma_calculator::{
     setup, CircuitInput, CircuitOutput, DecryptionSharesMap, Score, ServerState, WebClient,
 };
-
-use rustyline::{error::ReadlineError, DefaultEditor};
-
 use phantom_zone::{gen_client_key, gen_server_key_share, ClientKey};
+use rustyline::{error::ReadlineError, DefaultEditor};
+use std::{collections::HashMap, fmt::Display, iter::zip};
+use tabled::{settings::Style, Table, Tabled};
 
-use clap::Parser;
+/// HACK: Bound max input value on client side;
+const MAX_INPUT_VALUE: Score = 1000;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -68,13 +66,21 @@ impl State {
             State::Setup(_) => "Enter `conclude` to end registration or `next` to proceed",
             State::ConcludedRegistration(ConcludedRegistration { names, .. }) => {
                 let total_users = names.len();
-                &format!(
-                    "Enter `next` with scores for each user to continue. Example: `next {}`",
-                    (0..total_users)
-                        .map(|n| n.to_string())
-                        .collect::<Vec<String>>()
-                        .join(" ")
-                )
+                &[
+                    "Enter `next` with Karma values you'd like to send to each user.",
+                    &format!(
+                        "Example: `next {}`",
+                        (0..total_users)
+                            .map(|n| n.to_string())
+                            .collect::<Vec<String>>()
+                            .join(" ")
+                    ),
+                    &format!(
+                        "(Maxium Karma you can send for each user: {})",
+                        MAX_INPUT_VALUE
+                    ),
+                ]
+                .join("\n")
             }
             State::Decrypted(_) => "Exit with `CTRL-D`",
             _ => "Enter `next` to continue",
@@ -236,11 +242,10 @@ async fn cmd_score_encrypt(
         scores.len(),
         total_users
     );
-    let max = Score::max_value();
     ensure!(
-        scores.iter().all(|&x| x <= max),
+        scores.iter().all(|&x| x <= MAX_INPUT_VALUE),
         "All scores should be less or equal than {}. Scores: {:#?}",
-        max,
+        MAX_INPUT_VALUE,
         scores,
     );
     let total: Score = scores.iter().sum();
@@ -477,13 +482,13 @@ fn present_balance(names: &[String], scores: &[Score], final_balances: &[Score])
     struct Row {
         name: String,
         karma_i_sent: Score,
-        decrypted_karma_balance: i16,
+        decrypted_karma_balance: i32,
     }
     let table = zip(zip(names, scores), final_balances)
         .map(|((name, &karma_i_sent), &decrypted_karma_balance)| Row {
             name: name.to_string(),
             karma_i_sent,
-            decrypted_karma_balance: decrypted_karma_balance as i16,
+            decrypted_karma_balance: decrypted_karma_balance as i32,
         })
         .collect_vec();
     println!("{}", Table::new(table).with(Style::ascii_rounded()));
