@@ -482,13 +482,13 @@ fn present_balance(names: &[String], scores: &[Score], final_balances: &[Score])
     struct Row {
         name: String,
         karma_i_sent: Score,
-        decrypted_karma_balance: i32,
+        decrypted_karma_balance: Score,
     }
     let table = zip(zip(names, scores), final_balances)
         .map(|((name, &karma_i_sent), &decrypted_karma_balance)| Row {
             name: name.to_string(),
             karma_i_sent,
-            decrypted_karma_balance: decrypted_karma_balance as i32,
+            decrypted_karma_balance,
         })
         .collect_vec();
     println!("{}", Table::new(table).with(Style::ascii_rounded()));

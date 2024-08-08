@@ -28,7 +28,7 @@ pub(crate) type Word = Vec<FheBool>;
 /// Decryption share for a word from one user.
 pub(crate) type DecryptionShare = Vec<u64>;
 
-type PlainWord = u32;
+type PlainWord = i32;
 type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 
 /// Encrypted input words contributed from one user
@@ -123,7 +123,7 @@ fn decrypt_word(ck: &ClientKey, fhe_output: &Word, shares: &[DecryptionShare]) -
             ck.aggregate_decryption_shares(fhe_bit, &shares_for_bit_k)
         })
         .collect_vec();
-    recover(&decrypted_bits)
+    recover(&decrypted_bits) as i32
 }
 
 #[derive(Debug, Error)]
