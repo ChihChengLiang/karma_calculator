@@ -1,21 +1,19 @@
-use circuit::PARAMETER;
+use crate::circuit::*;
+use crate::types::*;
+use crate::*;
+use anyhow::Error;
+use futures::future::join_all;
 use itertools::Itertools;
 use phantom_zone::{
     gen_client_key, gen_server_key_share, set_parameter_set, Encryptor, MultiPartyDecryptor,
 };
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
-use std::{collections::HashMap, time::Duration};
-use tokio::time::sleep;
-use types::{Score, ServerState};
-
-use crate::types::u64_to_binary;
-use crate::*;
-use anyhow::Error;
-use futures::future::join_all;
 use rocket::{
     serde::{msgpack, Deserialize, Serialize},
     Build, Rocket,
 };
+use std::{collections::HashMap, time::Duration};
+use tokio::time::sleep;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 // We're not sending the User struct in rockets. This macro is here just for Serde reasons

@@ -1,7 +1,6 @@
 use crate::{
     compiled::{karma_add, karma_sub},
-    types::Word,
-    CircuitInput, CircuitOutput,
+    types::{CircuitInput, CircuitOutput, Word},
 };
 use itertools::Itertools;
 use phantom_zone::{aggregate_server_key_shares, set_parameter_set, ParameterSelector};
@@ -36,21 +35,20 @@ pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
 }
 
 /// Server work
-pub(crate) fn evaluate_circuit(ciphers: &[CircuitInput]) -> CircuitOutput {
-    let ciphers = ciphers
+pub(crate) fn evaluate_circuit(cis: &[CircuitInput]) -> CircuitOutput {
+    let cis = cis
         .iter()
         .enumerate()
-        .map(|(user_id, payload)| payload.unpack(user_id))
+        .map(|(user_id, ci)| ci.unpack(user_id))
         .collect_vec();
 
     let mut outs = vec![];
 
-    ciphers
-        .par_iter()
+    cis.par_iter()
         .enumerate()
-        .map(|(my_id, my_ciphers)| {
-            let sent = sum_fhe_dyn(my_ciphers);
-            let received = ciphers.iter().map(|enc| enc[my_id].clone()).collect_vec();
+        .map(|(my_id, my_ci)| {
+            let sent = sum_fhe_dyn(my_ci);
+            let received = cis.iter().map(|enc| enc[my_id].clone()).collect_vec();
             let received = sum_fhe_dyn(&received);
             set_parameter_set(PARAMETER);
             karma_sub(&received, &sent)

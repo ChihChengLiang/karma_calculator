@@ -1,10 +1,9 @@
 use crate::{
     dashboard::{Dashboard, RegisteredUser},
     types::{
-        DecryptionShare, DecryptionShareSubmission, InputSubmission, Seed, ServerKeyShare,
-        ServerState, UserId,
+        CircuitInput, CircuitOutput, DecryptionShare, DecryptionShareSubmission, InputSubmission,
+        Seed, ServerKeyShare, ServerState, UserId,
     },
-    CircuitInput, CircuitOutput,
 };
 use anyhow::{anyhow, bail, Error};
 use indicatif::{ProgressBar, ProgressStyle};

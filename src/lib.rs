@@ -1,16 +1,15 @@
 mod circuit;
 mod client;
+mod compiled;
 mod dashboard;
 mod server;
 mod types;
-mod compiled;
 
 pub use client::WebClient;
 pub use server::{rocket, setup};
-
 pub use types::{
-    recover, u64_to_binary, ClientKey, DecryptionShare, DecryptionSharesMap, Score, Seed,
-    ServerKeyShare, UserId, Word, *,
+    recover, u64_to_binary, CircuitInput, CircuitOutput, ClientKey, DecryptionShare,
+    DecryptionSharesMap, Score, Seed, ServerKeyShare, ServerState, UserId, Word,
 };
 
 #[cfg(test)]

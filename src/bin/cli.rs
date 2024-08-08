@@ -309,7 +309,6 @@ async fn cmd_download_shares(
         }
     }
     println!("Decrypt the encrypted output");
-    // Problem: How do you know output id?
     let dss = (0..co.n())
         .map(|output_id| {
             (0..total_users)
