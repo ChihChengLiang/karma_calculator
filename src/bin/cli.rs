@@ -2,7 +2,8 @@ use anyhow::{anyhow, bail, ensure, Error};
 use clap::{command, Parser};
 use itertools::Itertools;
 use karma_calculator::{
-    setup, CircuitInput, CircuitOutput, DecryptionSharesMap, Score, ServerState, UserId, WebClient,
+    setup, CircuitOutput, DecryptionSharesMap, EncryptedInput, Score, ServerState, UserId,
+    WebClient,
 };
 use phantom_zone::{gen_client_key, gen_server_key_share, ClientKey};
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -24,7 +25,7 @@ enum State {
     Init(StateInit),
     Setup(StateSetup),
     ConcludedRegistration(ConcludedRegistration),
-    EncryptedInput(EncryptedInput),
+    SubmittedInput(SubmittedInput),
     TriggeredRun(StateTriggeredRun),
     DownloadedOutput(StateDownloadedOuput),
     Decrypted(StateDecrypted),
@@ -36,7 +37,7 @@ impl Display for State {
             State::Init(_) => "Initialization",
             State::Setup(_) => "Setup",
             State::ConcludedRegistration(_) => "Concluded Registration",
-            State::EncryptedInput(_) => "Encrypted Input",
+            State::SubmittedInput(_) => "Encrypted Input",
             State::TriggeredRun(_) => "Triggered Run",
             State::DownloadedOutput(_) => "Downloaded Output",
             State::Decrypted(_) => "Decrypted",
@@ -53,7 +54,7 @@ impl State {
             }
             State::Setup(StateSetup { .. }) => "✅ Setup completed!".to_string(),
             State::ConcludedRegistration(_) => "✅ Users' names acquired!".to_string(),
-            State::EncryptedInput(_) => "✅ Ciphertext submitted!".to_string(),
+            State::SubmittedInput(_) => "✅ Ciphertext submitted!".to_string(),
             State::TriggeredRun(_) => "✅ FHE run triggered!".to_string(),
             State::DownloadedOutput(_) => "✅ FHE output downloaded!".to_string(),
             State::Decrypted(_) => "✅ FHE output decrypted!".to_string(),
@@ -109,7 +110,7 @@ struct ConcludedRegistration {
     names: Vec<String>,
 }
 
-struct EncryptedInput {
+struct SubmittedInput {
     name: String,
     client: WebClient,
     ck: ClientKey,
@@ -254,13 +255,13 @@ async fn cmd_score_encrypt(
     }
     println!("I gave out {total} karma");
 
-    let ci = CircuitInput::from_plain(ck, &scores);
+    let ei = EncryptedInput::from_plain(ck, &scores);
 
     println!("Generating server key share");
     let sks = gen_server_key_share(*user_id, total_users, ck);
 
     println!("Submit the cipher and the server key share");
-    client.submit_cipher(*user_id, &ci, &sks).await?;
+    client.submit_cipher(*user_id, &ei, &sks).await?;
     Ok(scores)
 }
 
@@ -368,7 +369,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             },
             State::ConcludedRegistration(s) => {
                 match cmd_score_encrypt(args, &s.client, &s.user_id, &s.names, &s.ck).await {
-                    Ok(scores) => Ok(State::EncryptedInput(EncryptedInput {
+                    Ok(scores) => Ok(State::SubmittedInput(SubmittedInput {
                         name: s.name,
                         client: s.client,
                         ck: s.ck,
@@ -379,7 +380,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                     Err(err) => Err((err, State::ConcludedRegistration(s))),
                 }
             }
-            State::EncryptedInput(s) => match cmd_run(&s.client).await {
+            State::SubmittedInput(s) => match cmd_run(&s.client).await {
                 Ok(()) => Ok(State::TriggeredRun(StateTriggeredRun {
                     name: s.name,
                     client: s.client,
@@ -388,7 +389,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
                     names: s.names,
                     scores: s.scores,
                 })),
-                Err(err) => Err((err, State::EncryptedInput(s))),
+                Err(err) => Err((err, State::SubmittedInput(s))),
             },
             State::TriggeredRun(s) => match cmd_download_output(&s.client, &s.user_id, &s.ck).await
             {
@@ -457,7 +458,7 @@ async fn run(state: State, line: &str) -> Result<State, (Error, State)> {
             State::Init(StateInit { client, .. })
             | State::Setup(StateSetup { client, .. })
             | State::ConcludedRegistration(ConcludedRegistration { client, .. })
-            | State::EncryptedInput(EncryptedInput { client, .. })
+            | State::SubmittedInput(SubmittedInput { client, .. })
             | State::TriggeredRun(StateTriggeredRun { client, .. })
             | State::DownloadedOutput(StateDownloadedOuput { client, .. })
             | State::Decrypted(StateDecrypted { client, .. }) => {

@@ -35,12 +35,6 @@ pub(crate) fn derive_server_key(server_key_shares: &[ServerKeyShare]) {
 
 /// Server work
 pub(crate) fn evaluate_circuit(cis: &[CircuitInput]) -> CircuitOutput {
-    let cis = cis
-        .iter()
-        .enumerate()
-        .map(|(user_id, ci)| ci.unpack(user_id))
-        .collect_vec();
-
     let mut outs = vec![];
 
     cis.par_iter()

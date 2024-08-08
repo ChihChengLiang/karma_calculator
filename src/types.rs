@@ -25,6 +25,7 @@ pub(crate) type ServerKeyShare = CommonReferenceSeededNonInteractiveMultiPartySe
     NonInteractiveMultiPartyCrs<Seed>,
 >;
 pub(crate) type Word = Vec<FheBool>;
+pub(crate) type CircuitInput = Vec<Word>;
 /// Decryption share for a word from one user.
 pub(crate) type DecryptionShare = Vec<u64>;
 
@@ -33,11 +34,11 @@ type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 
 /// Encrypted input words contributed from one user
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CircuitInput {
+pub struct EncryptedInput {
     karma_sent: Vec<EncryptedWord>,
 }
 
-impl CircuitInput {
+impl EncryptedInput {
     pub fn from_plain(ck: &ClientKey, karma: &[PlainWord]) -> Self {
         let cipher = karma
             .iter()
@@ -51,7 +52,7 @@ impl CircuitInput {
     /// 1. Decompression: A cipher is a matrix generated from a seed. The seed is sent through the network as a compression. By calling the `unseed` method we recovered the matrix here.
     /// 2. Key Switch: We reencrypt the cipher with the server key for the computation. We need to specify the original signer of the cipher.
     /// 3. Extract: A user's encrypted inputs are packed in a batched struct. We call `extract_all` method to convert it to unbatched word.
-    pub(crate) fn unpack(&self, user_id: UserId) -> Vec<Word> {
+    pub(crate) fn unpack(&self, user_id: UserId) -> CircuitInput {
         self.karma_sent
             .iter()
             .map(|word| {
@@ -249,7 +250,7 @@ impl ServerStorage {
 
     pub(crate) fn get_ciphers_and_sks(
         &mut self,
-    ) -> Result<(Vec<ServerKeyShare>, Vec<CircuitInput>), Error> {
+    ) -> Result<(Vec<ServerKeyShare>, Vec<EncryptedInput>), Error> {
         let mut server_key_shares = vec![];
         let mut ciphers = vec![];
         for (user_id, user) in self.users.iter_mut().enumerate() {
@@ -279,12 +280,12 @@ pub(crate) struct UserRecord {
 #[derive(Debug, Clone)]
 pub(crate) enum UserStorage {
     Empty,
-    CipherSks(CircuitInput, Box<ServerKeyShare>),
+    CipherSks(EncryptedInput, Box<ServerKeyShare>),
     DecryptionShare(Option<Vec<DecryptionShare>>),
 }
 
 impl UserStorage {
-    pub(crate) fn get_cipher_sks(&self) -> Option<(&CircuitInput, &ServerKeyShare)> {
+    pub(crate) fn get_cipher_sks(&self) -> Option<(&EncryptedInput, &ServerKeyShare)> {
         match self {
             Self::CipherSks(cipher, sks) => Some((cipher, sks)),
             _ => None,
@@ -308,7 +309,7 @@ pub type DecryptionSharesMap = HashMap<(usize, UserId), DecryptionShare>;
 #[serde(crate = "rocket::serde")]
 pub(crate) struct InputSubmission {
     pub(crate) user_id: UserId,
-    pub(crate) ci: CircuitInput,
+    pub(crate) ei: EncryptedInput,
     pub(crate) sks: ServerKeyShare,
 }
 

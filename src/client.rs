@@ -1,7 +1,7 @@
 use crate::{
     dashboard::{Dashboard, RegisteredUser},
     types::{
-        CircuitInput, CircuitOutput, DecryptionShare, DecryptionShareSubmission, InputSubmission,
+        EncryptedInput, CircuitOutput, DecryptionShare, DecryptionShareSubmission, InputSubmission,
         Seed, ServerKeyShare, ServerState, UserId,
     },
 };
@@ -137,12 +137,12 @@ impl WebClient {
     pub async fn submit_cipher(
         &self,
         user_id: UserId,
-        ci: &CircuitInput,
+        ei: &EncryptedInput,
         sks: &ServerKeyShare,
     ) -> Result<UserId, Error> {
         let submission = InputSubmission {
             user_id,
-            ci: ci.clone(),
+            ei: ei.clone(),
             sks: sks.clone(),
         };
         self.post_msgpack("/submit", &submission).await

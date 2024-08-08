@@ -29,7 +29,7 @@ struct User {
     scores: Option<Vec<Score>>,
     // step 3: gen key and cipher
     server_key: Option<ServerKeyShare>,
-    cipher: Option<CircuitInput>,
+    cipher: Option<EncryptedInput>,
     // step 4: get FHE output
     fhe_out: Option<CircuitOutput>,
     // step 5: derive decryption shares
@@ -79,7 +79,7 @@ impl User {
         let scores = self.scores.as_ref().unwrap().to_vec();
         let ck: &ClientKey = self.ck.as_ref().unwrap();
 
-        let cipher = CircuitInput::from_plain(ck, &scores);
+        let cipher = EncryptedInput::from_plain(ck, &scores);
         self.cipher = Some(cipher);
         self
     }

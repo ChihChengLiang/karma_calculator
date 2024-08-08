@@ -5,6 +5,7 @@ use crate::types::{
     CircuitOutput, DecryptionShare, DecryptionShareSubmission, Error, ErrorResponse,
     InputSubmission, MutexServerStorage, Seed, ServerState, ServerStorage, UserId, UserStorage,
 };
+use itertools::Itertools;
 use phantom_zone::{set_common_reference_seed, set_parameter_set};
 use rand::{thread_rng, RngCore};
 use rocket::serde::json::Json;
@@ -61,11 +62,11 @@ async fn submit(
 
     ss.ensure(ServerState::ReadyForInputs)?;
 
-    let InputSubmission { user_id, ci, sks } = submission.0;
+    let InputSubmission { user_id, ei, sks } = submission.0;
 
     let user = ss.get_user(user_id)?;
     println!("{} submited data", user.name);
-    user.storage = UserStorage::CipherSks(ci, Box::new(sks));
+    user.storage = UserStorage::CipherSks(ei, Box::new(sks));
 
     if ss.check_cipher_submission() {
         ss.transit(ServerState::ReadyForRunning);
@@ -82,7 +83,7 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerState>, ErrorR
 
     match &ss.state {
         ServerState::ReadyForRunning => {
-            let (server_key_shares, ciphers) = ss.get_ciphers_and_sks()?;
+            let (server_key_shares, encrypted_inputs) = ss.get_ciphers_and_sks()?;
 
             tokio::task::spawn_blocking(move || {
                 rayon::ThreadPoolBuilder::new()
@@ -98,9 +99,16 @@ async fn run(ss: &State<MutexServerStorage>) -> Result<Json<ServerState>, ErrorR
                                 println!("Begin FHE run");
                                 // Long running, global variable change
                                 derive_server_key(&server_key_shares);
+
+                                // Unpack to get circuit inputs
+                                let cis = encrypted_inputs
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(user_id, ei)| ei.unpack(user_id))
+                                    .collect_vec();
+
                                 // Long running
-                                let output =
-                                    time!(|| evaluate_circuit(&ciphers), "Evaluating Circuit");
+                                let output = time!(|| evaluate_circuit(&cis), "Evaluating Circuit");
                                 let mut ss = s2.blocking_lock();
                                 ss.fhe_outputs = Some(output);
                                 ss.transit(ServerState::CompletedFhe);
