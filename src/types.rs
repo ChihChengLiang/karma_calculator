@@ -29,7 +29,7 @@ pub(crate) type CircuitInput = Vec<Word>;
 /// Decryption share for a word from one user.
 pub(crate) type DecryptionShare = Vec<u64>;
 
-type PlainWord = i32;
+type PlainWord = i16;
 type EncryptedWord = NonInteractiveSeededFheBools<Vec<u64>, Seed>;
 
 /// Encrypted input words contributed from one user
@@ -124,7 +124,7 @@ fn decrypt_word(ck: &ClientKey, fhe_output: &Word, shares: &[DecryptionShare]) -
             ck.aggregate_decryption_shares(fhe_bit, &shares_for_bit_k)
         })
         .collect_vec();
-    recover(&decrypted_bits) as i32
+    recover(&decrypted_bits) as i16
 }
 
 #[derive(Debug, Error)]
@@ -332,10 +332,10 @@ pub fn u64_to_binary<const N: usize>(v: u64) -> [bool; N] {
     result
 }
 
-pub fn recover(bits: &[bool]) -> u32 {
-    let mut out: u32 = 0;
+pub fn recover(bits: &[bool]) -> u16 {
+    let mut out = 0;
     for (i, bit) in bits.iter().enumerate() {
-        out |= (*bit as u32) << i;
+        out |= (*bit as u16) << i;
     }
     out
 }
